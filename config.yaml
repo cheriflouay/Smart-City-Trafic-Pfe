@@ -1,0 +1,29 @@
+# config.yaml
+system:
+  video_path: "data/videos/traffic.mp4"
+  model_path: "models/yolov8n.pt"
+  db_path: "traffic_system.db"
+  screen_width: 1366
+  screen_height: 768
+
+ai:
+  conf_threshold: 0.4
+  vehicle_classes: [2, 3, 5, 7] # COCO: car, motorcycle, bus, truck
+  tracker_type: "botsort.yaml"
+
+traffic_light:
+  green_time_base: 10
+  yellow_time: 3
+  max_green_time: 25
+
+speed_estimation:
+  line_1_y: 1500            # Top virtual line (Speed Trap Start)
+  line_2_y: 1600            # Bottom virtual line (Red Light Line / Speed Trap End)
+  distance_meters: 5.0     # Real-world distance between the two lines in meters
+  speed_limit_kmh: 50.0
+
+mqtt:
+  broker: "broker.hivemq.com"
+  port: 1883
+  topic_light: "traffic/light"
+  topic_violation: "traffic/violation"

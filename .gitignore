@@ -1,0 +1,24 @@
+# Environments & Cache
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases & Logs
+*.db
+*.sqlite3
+logs/
+exports/
+
+# AI Models & Media
+*.pt
+*.onnx
+*.mp4
+*.avi
+temp_frame_*.jpg
+latest_frame_*.jpg
+
+# OS Generated Files
+.DS_Store
+Thumbs.db

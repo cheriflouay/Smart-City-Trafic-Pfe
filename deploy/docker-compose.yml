@@ -1,0 +1,61 @@
+# deploy/docker-compose.yml
+
+services:
+  mqtt_broker:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: always
+
+  orchestrator:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile
+    command: python -m src.decision.orchestrator
+    depends_on:
+      - mqtt_broker
+    volumes:
+      - ../:/app
+    environment:
+      - MQTT_BROKER=mqtt_broker
+    restart: always
+
+  edge_node_a:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile
+    command: python -m src.analysis.vehicle_counting_smart_light --node NODE_A
+    depends_on:
+      - mqtt_broker
+    volumes:
+      - ../:/app
+    environment:
+      - MQTT_BROKER=mqtt_broker
+    restart: always
+
+  api_layer:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile
+    command: python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../:/app
+    restart: always
+
+  dashboard:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile
+    command: python -m streamlit run src/dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api_layer
+    volumes:
+      - ../:/app
+    restart: always
