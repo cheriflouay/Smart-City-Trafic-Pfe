@@ -1,19 +1,21 @@
 # src/database/db.py
 import sqlite3
+import os
 from src.utils.logger import setup_logger
 
 logger = setup_logger("EnterpriseDB")
-DB_PATH = "traffic_system.db"
+DB_PATH = "data/traffic_system.db" # 👈 STRICT PATH
 
-def get_connection(db_path=DB_PATH):
-    """Returns a connection with a timeout to handle multi-node concurrent writes safely."""
-    conn = sqlite3.connect(db_path, timeout=15.0) 
+def get_connection():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False) 
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_db(db_path=DB_PATH):
-    logger.info("🗄️ Initializing Distributed Enterprise Database Schema...")
-    conn = get_connection(db_path)
+# Update your init_db() to use this exact path
+def init_db():
+    logger.info(f"🗄️ Initializing Database at {DB_PATH}...")
+    conn = get_connection()
     cursor = conn.cursor()
 
     # 1. NODE REGISTRY

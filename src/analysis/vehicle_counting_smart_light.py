@@ -13,6 +13,10 @@ from datetime import datetime
 from ultralytics import YOLO
 import paho.mqtt.client as mqtt
 
+# 👇 THE FIX: Force the system into Enterprise Headless Mode. 
+# This disables local pop-ups and pipes the video directly to the React Web Dashboard.
+os.environ["HEADLESS_MODE"] = "1"
+
 # Ignore scikit-learn warnings about feature names
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -51,18 +55,41 @@ os.makedirs("violations", exist_ok=True)
 logger.info(f"🚀 Booting Edge Vision Worker for {NODE_ID}...")
 logger.info("🧠 Loading YOLO Model...")
 model = YOLO(config["system"]["model_path"])
-model.fuse() 
+
+# Make the node "ONNX-Aware" to prevent the .fuse() crash!
+if config["system"]["model_path"].endswith(".pt"):
+    model.fuse()
+    logger.info("⚙️ PyTorch Model Fused.")
+else:
+    logger.info("⚡ ONNX Model Loaded (Pre-fused and highly optimized).")
 
 logger.info("🗄 Checking distributed database...")
 init_db()
 
-# The DevOps Suicide Switch Listener
+# 🚨 NEW: Global flags for Dashboard Emergency Control
+emergency_force_green = False
+emergency_end_time = 0
+restart_requested = False  # 👈 NEW: Flag for restarting the video
+
+# The DevOps Suicide Switch & Emergency Listener
 def on_command_message(client, userdata, msg):
+    global emergency_force_green, emergency_end_time, restart_requested
     try:
         payload = json.loads(msg.payload.decode())
-        if payload.get("action") == "RESET_NODE":
-            logger.warning("🔄 Dashboard requested full reset. Rebooting Docker Container...")
-            os._exit(1) # Kills the script so Docker instantly restarts it
+        action = payload.get("action")
+        
+        if action == "RESET_NODE":
+            logger.warning("🔄 Dashboard requested full reset. Rebooting...")
+            os._exit(1) # Kills the script
+        elif action == "FORCE_GREEN":
+            logger.warning(f"🚨 EMERGENCY: Dashboard forced green light for {NODE_ID}")
+            emergency_force_green = True
+            # Stay green for requested duration or default to 15 seconds
+            emergency_end_time = time.time() + payload.get("duration", 15)
+        elif action == "RESTART_VIDEO":
+            logger.warning(f"🔄 Dashboard requested video restart for {NODE_ID}")
+            restart_requested = True
+            
     except Exception as e:
         pass
 
@@ -91,17 +118,6 @@ except Exception as e:
 # -------------------------------------------------
 # HELPER FUNCTIONS
 # -------------------------------------------------
-def resize_with_aspect_ratio(frame):
-    h, w = frame.shape[:2]
-    scale = min(config["system"]["screen_width"] / w, config["system"]["screen_height"] / h)
-    new_w, new_h = int(w * scale), int(h * scale)
-    resized = cv2.resize(frame, (new_w, new_h))
-    
-    canvas = np.zeros((config["system"]["screen_height"], config["system"]["screen_width"], 3), dtype=np.uint8)
-    x_offset, y_offset = (config["system"]["screen_width"] - new_w) // 2, (config["system"]["screen_height"] - new_h) // 2
-    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
-    return canvas
-
 def draw_traffic_light(frame, state):
     h, w = frame.shape[:2]
     box_x1, box_y1 = w - 120, 20
@@ -124,6 +140,7 @@ def draw_traffic_light(frame, state):
 # MAIN FUNCTION
 # -------------------------------------------------
 def main():
+    global emergency_force_green, emergency_end_time, restart_requested
     
     speed_estimator = SpeedEstimator(
         line_1_y=config["speed_estimation"]["line_1_y"],
@@ -160,27 +177,46 @@ def main():
     if not os.environ.get("HEADLESS_MODE"):
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         
-    # 👇 NEW: Cache for bounding boxes during skipped frames
+    # Cache for bounding boxes during skipped frames
     cached_tracks = []
 
-    logger.info(f"✅ Edge Node {NODE_ID} Started Successfully")
+    logger.info(f"✅ Edge Node {NODE_ID} Started Successfully (Web Mode)")
 
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            logger.info("🔄 Video ended. Looping back to the start...")
+        # 👇 1. Check if the dashboard clicked the RESTART button
+        if restart_requested:
+            logger.info("🔄 Restarting video from frame 0...")
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             counted_ids.clear() 
             track_history.clear()
             speed_estimator.entry_times.clear()
             speed_estimator.speeds.clear()
             frame_counter = 0
+            restart_requested = False
+
+        ret, frame = cap.read()
+        
+        # 👇 2. Stop the video when it ends and show a standby screen
+        if not ret:
+            standby_frame = np.zeros((config["system"]["screen_height"], config["system"]["screen_width"], 3), dtype=np.uint8)
+            cv2.putText(standby_frame, "VIDEO FINISHED - CLICK RESTART ON DASHBOARD", (100, config["system"]["screen_height"]//2), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+            
+            temp_file = f"temp_feed_{NODE_ID}.jpg"
+            final_file = f"latest_frame_{NODE_ID}.jpg"
+            cv2.imwrite(temp_file, standby_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+            try: os.replace(temp_file, final_file)
+            except: pass
+            
+            time.sleep(0.1) # Sleep slightly so we don't fry the CPU while waiting
             continue
 
         frame_counter += 1
         video_time = frame_counter / video_native_fps
         current_sys_time = time.time()
-        display_fps = 1 / (current_sys_time - prev_sys_time) if prev_sys_time != 0 else 0
+        
+        # Prevent division by zero error for extremely fast loop cycles
+        time_diff = current_sys_time - prev_sys_time
+        display_fps = 1 / time_diff if time_diff > 0 else 0
         prev_sys_time = current_sys_time
 
         # Send MQTT Health Heartbeat
@@ -198,10 +234,10 @@ def main():
         # ========================================================
         # 🚀 THE FPS BOOST: INFERENCE DECIMATION (FRAME SKIPPING)
         # ========================================================
-        if frame_counter % 2 == 0:
+        if frame_counter % 3 == 0:
             # ---------------- DETECTION & TRACKING ----------------
             results = model.track(frame, persist=True, tracker=config["ai"]["tracker_type"], 
-                                  imgsz=320, verbose=False, classes=config["ai"]["vehicle_classes"])
+                                  imgsz=640, verbose=False, conf=0.25, classes=config["ai"]["vehicle_classes"])
             tracks = []
             if results[0].boxes is not None and results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -333,7 +369,8 @@ def main():
         # ---------------- SMART LIGHT LOGIC WITH IOT & AI OVERRIDE ----------------
         elapsed = current_sys_time - last_switch_time
 
-        if emergency_override.check_override():
+        # 🚨 UPDATED: Checks for physical V2I overrides OR the Dashboard manual override
+        if emergency_override.check_override() or (emergency_force_green and current_sys_time < emergency_end_time):
             if light_state != "GREEN":
                 light_state = "GREEN"
                 last_switch_time = current_sys_time
@@ -342,6 +379,8 @@ def main():
             video_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             cv2.putText(frame, "🚨 EMERGENCY OVERRIDE ACTIVE 🚨", (video_w//2 - 250, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
         else:
+            emergency_force_green = False # Reset the flag once time expires
+            
             if light_state == "GREEN":
                 calculated_time = config["traffic_light"]["green_time_base"] + (vehicles_interval * 1)
                 if ai_prediction in ["HIGH", "CRITICAL"]: calculated_time += 10.0 
@@ -365,41 +404,36 @@ def main():
                     last_switch_time = current_sys_time
                     mqtt_client.publish(config["mqtt"]["topic_light"], f"GREEN_{NODE_ID}")
 
-        # ---------------- DISPLAY & RENDER (HEADLESS SAFE) ----------------
+        # ---------------- DISPLAY & RENDER (CLEAN FEED) ----------------
         cv2.line(frame, (0, config["speed_estimation"]["line_1_y"]), (frame.shape[1], config["speed_estimation"]["line_1_y"]), (255, 0, 0), 2)
         cv2.line(frame, (0, config["speed_estimation"]["line_2_y"]), (frame.shape[1], config["speed_estimation"]["line_2_y"]), (0, 0, 255), 3)
-        cv2.putText(frame, f"Total Count: {vehicle_count}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
-        cv2.putText(frame, f"FPS: {int(display_fps)}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
-        cv2.putText(frame, f"Active Node: {NODE_ID}", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 100, 100), 2)
         
-        if ml_model:
-            pred_color = (0, 0, 255) if ai_prediction in ["HIGH", "CRITICAL"] else (0, 255, 0)
-            cv2.putText(frame, f"AI Forecast: {ai_prediction}", (20, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, pred_color, 2)
+        cv2.putText(frame, f"FPS: {int(display_fps)}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+        cv2.putText(frame, f"Active Node: {NODE_ID}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 100, 100), 2)
 
+        # Draw the lights directly onto the full-quality frame
         frame = draw_traffic_light(frame, light_state)
-        display_frame = resize_with_aspect_ratio(frame)
 
-        # 👇 THE FIX: Uncapped the UI throttle from 0.15s to 0.04s to allow up to 25 FPS video streaming
+        # 📡 WINDOWS-SAFE VIDEO BROADCASTING
         if current_sys_time - last_frame_write > 0.04: 
             try:
-                # 1. Compress image in RAM first
-                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 75]
-                _, buffer = cv2.imencode('.jpg', display_frame, encode_param)
+                # Use exactly ONE static temp file to prevent hard drive filling
+                temp_file = f"temp_feed_{NODE_ID}.jpg"
+                final_file = f"latest_frame_{NODE_ID}.jpg"
                 
-                # 2. Write to a unique temporary file so Windows doesn't lock it
-                temp_filename = f"temp_frame_{NODE_ID}_{int(current_sys_time*1000)}.jpg"
-                with open(temp_filename, "wb") as f:
-                    f.write(buffer)
+                # Write the high-quality frame to the temp file
+                cv2.imwrite(temp_file, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
                 
-                # 3. Atomically replace the file the API is looking for
-                os.replace(temp_filename, f"latest_frame_{NODE_ID}.jpg")
-            except Exception:
-                pass # If Windows locks it, just skip rendering this specific frame!
+                # Atomically overwrite the file FastAPI is reading
+                os.replace(temp_file, final_file)
+            except Exception as e:
+                # If FastAPI is locking the file this exact millisecond, ignore it and try again next frame
+                pass 
             
             last_frame_write = current_sys_time
 
         if not os.environ.get("HEADLESS_MODE"):
-            cv2.imshow(window_name, display_frame)
+            cv2.imshow(window_name, frame)
             key = cv2.waitKey(1) & 0xFF
             if key == 27 or key == ord("q"):
                 break

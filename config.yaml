@@ -1,15 +1,17 @@
 # config.yaml
 system:
+  system:
   video_path: "data/videos/traffic.mp4"
-  model_path: "models/yolov8n.pt"
+  model_path: "models/yolov8s.onnx"   
   db_path: "traffic_system.db"
   screen_width: 1366
   screen_height: 768
 
 ai:
   conf_threshold: 0.4
-  vehicle_classes: [2, 3, 5, 7] # COCO: car, motorcycle, bus, truck
-  tracker_type: "botsort.yaml"
+  # 👇 UPGRADED: Added 0 to detect Persons/Pedestrians
+  vehicle_classes: [0, 2, 3, 5, 7] # COCO: 0:person, 2:car, 3:motorcycle, 5:bus, 7:truck
+  tracker_type: "bytetrack.yaml"
 
 traffic_light:
   green_time_base: 10
@@ -19,7 +21,7 @@ traffic_light:
 speed_estimation:
   line_1_y: 1500            # Top virtual line (Speed Trap Start)
   line_2_y: 1600            # Bottom virtual line (Red Light Line / Speed Trap End)
-  distance_meters: 5.0     # Real-world distance between the two lines in meters
+  distance_meters: 5.0      # Real-world distance between the two lines in meters
   speed_limit_kmh: 50.0
 
 mqtt:

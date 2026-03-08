@@ -1,0 +1,23 @@
+# Git
+.git
+.gitignore
+
+# Python virtual environments
+venv/
+env/
+.venv/
+
+# Cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Databases and heavy local data
+*.db
+*.sqlite3
+data/traffic_system.db
+violations/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/

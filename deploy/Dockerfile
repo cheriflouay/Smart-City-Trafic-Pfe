@@ -1,8 +1,10 @@
 # deploy/Dockerfile
 FROM python:3.11-slim
 
-# Install system dependencies required for OpenCV and SQLite
+# 👇 THE FIX: Added build-essential and python3-dev to compile AI math libraries
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3-dev \
     libgl1 \
     libglib2.0-0 \
     sqlite3 \
@@ -10,18 +12,17 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Upgrade pip, install base requirements, and explicitly install Enterprise Platform libraries
+# Upgrade pip and install everything
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir onnxruntime psutil fpdf scikit-learn \
     fastapi uvicorn streamlit paho-mqtt easyocr pandas plotly \
-    folium streamlit-folium streamlit-autorefresh
+    folium streamlit-folium streamlit-autorefresh lapx
 
 # Copy the actual Smart City code
 COPY src/ /app/src/
 COPY config.yaml /app/
-COPY traffic_system.db /app/
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1 

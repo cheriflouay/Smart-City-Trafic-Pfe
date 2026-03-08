@@ -18,6 +18,7 @@ services:
     depends_on:
       - mqtt_broker
     volumes:
+      # Maps the entire project root (including the data/ folder) into the container
       - ../:/app
     environment:
       - MQTT_BROKER=mqtt_broker

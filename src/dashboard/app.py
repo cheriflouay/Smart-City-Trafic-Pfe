@@ -101,7 +101,8 @@ def fetch_recent_violations(node):
 
 def fetch_congestion_data(node, modifier):
     try:
-        conn = sqlite3.connect("traffic_system.db")
+        # 👇 THE FIX: Force it to read the real data folder
+        conn = sqlite3.connect("data/traffic_system.db")
         query = "SELECT * FROM traffic_metrics WHERE 1=1 "
         if node != "ALL": 
             query += f"AND node_id='{node}' "
@@ -121,7 +122,8 @@ def fetch_ai_forecast(node):
 
 def fetch_v2x_logs(node):
     try:
-        conn = sqlite3.connect("traffic_system.db")
+        # 👇 THE FIX: Force it to read the real data folder
+        conn = sqlite3.connect("data/traffic_system.db")
         query = "SELECT * FROM v2x_ledger WHERE 1=1 "
         if node != "ALL": 
             query += f"AND node_id='{node}' "
@@ -165,7 +167,8 @@ st.sidebar.subheader("🔄 System Reset")
 if st.sidebar.button("🧹 Master System Reset", use_container_width=True):
     try:
         # 1. Clear Database
-        conn = sqlite3.connect("traffic_system.db")
+        # 👇 THE FIX: Force it to wipe the real data folder database
+        conn = sqlite3.connect("data/traffic_system.db")
         cur = conn.cursor()
         cur.execute("DELETE FROM traffic_metrics")
         cur.execute("DELETE FROM violations")
