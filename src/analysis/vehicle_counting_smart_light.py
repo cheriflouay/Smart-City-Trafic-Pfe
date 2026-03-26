@@ -237,7 +237,7 @@ def main():
         if frame_counter % 3 == 0:
             # ---------------- DETECTION & TRACKING ----------------
             results = model.track(frame, persist=True, tracker=config["ai"]["tracker_type"], 
-                                  imgsz=640, verbose=False, conf=0.25, classes=config["ai"]["vehicle_classes"])
+                                  imgsz=480, verbose=False, conf=0.25, classes=config["ai"]["vehicle_classes"])
             tracks = []
             if results[0].boxes is not None and results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy()

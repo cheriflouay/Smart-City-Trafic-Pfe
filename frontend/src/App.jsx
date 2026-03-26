@@ -1,173 +1,196 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Activity, VideoOff, Maximize, ShieldAlert, Moon, RefreshCw, Download } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
-// --- Reusable Enterprise Card Component (ICONS REMOVED AS REQUESTED) ---
-const DashboardCard = ({ title, accentColor, headerBg, textColor, children, extraHeader }) => (
-  <div className="bg-white rounded-xl shadow-md flex flex-col overflow-hidden h-full border border-gray-200/60 min-h-0">
-    <div className={`px-5 py-4 ${headerBg} ${textColor} flex items-center justify-between border-b-4 ${accentColor} shrink-0`}>
-      <h2 className="text-lg font-bold tracking-wide uppercase">{title}</h2>
-      {extraHeader && <div>{extraHeader}</div>}
-    </div>
-    <div className="p-5 flex-1 flex flex-col overflow-hidden text-capgemini-darkBlue bg-white min-h-0">
-      {children}
-    </div>
-  </div>
-);
+// --- MUI IMPORTS ---
+import { 
+  ThemeProvider, createTheme, CssBaseline, GlobalStyles, Box, AppBar, Toolbar, Typography, Tabs, Tab, 
+  Paper, Switch, Slider, Button, Table, TableBody, TableCell, TableContainer, 
+  TableHead, TableRow, MenuItem, Select, FormControl, InputLabel, Divider, TextField, IconButton
+} from '@mui/material';
 
-// --- 1. Left Column: Configurator ---
+// --- MUI ICONS ---
+import VideocamOffIcon from '@mui/icons-material/VideocamOff';
+import WarningIcon from '@mui/icons-material/Warning';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import DownloadIcon from '@mui/icons-material/Download';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
+import AssessmentIcon from '@mui/icons-material/Assessment';
+import LogoutIcon from '@mui/icons-material/Logout';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import PersonIcon from '@mui/icons-material/Person';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+
+// ============================================================================
+// 🎨 CAPGEMINI MUI DESIGN SYSTEM
+// ============================================================================
+const capgeminiTheme = createTheme({
+  palette: {
+    primary: { main: '#002b5c' },      
+    secondary: { main: '#00a0d1' },    
+    background: { default: '#eef2f6', paper: '#ffffff' }, 
+    error: { main: '#d13239' },
+  },
+  typography: {
+    fontFamily: '"Arial", "Roboto", "Helvetica", sans-serif',
+    h6: { fontWeight: 800, letterSpacing: '0.5px' },
+    subtitle1: { fontWeight: 800, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' },
+    body2: { fontSize: '0.8rem' }
+  },
+  components: {
+    MuiPaper: {
+      styleOverrides: {
+        root: { borderRadius: 8, boxShadow: '0px 4px 20px rgba(0,0,0,0.04)', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }
+      }
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: { textTransform: 'none', fontWeight: 700, borderRadius: 6, padding: '8px 16px', boxShadow: 'none' }
+      }
+    },
+    MuiTableCell: {
+      styleOverrides: {
+        head: { fontWeight: 800, backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' },
+        root: { padding: '10px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem' }
+      }
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: { fontWeight: 700, color: '#a0b2c6', '&.Mui-selected': { color: '#ffffff' }, minHeight: '48px' }
+      }
+    }
+  }
+});
+
+// ============================================================================
+// 🔐 LOGIN INTERFACE
+// ============================================================================
+const LoginScreen = ({ onLogin }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (username && password) onLogin();
+  };
+
+  return (
+    <Box sx={{ height: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#002b5c', backgroundImage: 'linear-gradient(135deg, #002b5c 0%, #001229 100%)' }}>
+      <Paper elevation={24} sx={{ p: 5, width: '100%', maxWidth: 420, borderRadius: 4, textAlign: 'center', border: 'none' }}>
+        <img src="/capgemini-logo.png" alt="Capgemini Logo" style={{ height: '56px', marginBottom: '24px', objectFit: 'contain' }} />
+        <Typography variant="h6" sx={{ color: '#002b5c', mb: 1 }}>SCRIVE-ADAS PLATFORM</Typography>
+        <Typography variant="body2" sx={{ color: '#64748b', mb: 4 }}>Please sign in to access the control panel.</Typography>
+
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <TextField fullWidth label="Username" variant="outlined" size="small" value={username} onChange={(e) => setUsername(e.target.value)} InputProps={{ startAdornment: <PersonIcon sx={{ color: '#94a3b8', mr: 1 }} /> }} />
+          <TextField fullWidth label="Password" type="password" variant="outlined" size="small" value={password} onChange={(e) => setPassword(e.target.value)} InputProps={{ startAdornment: <LockOutlinedIcon sx={{ color: '#94a3b8', mr: 1 }} /> }} />
+          <Button type="submit" variant="contained" color="secondary" size="large" fullWidth sx={{ mt: 2, py: 1.5, fontSize: '1rem' }}>SIGN IN</Button>
+        </form>
+      </Paper>
+    </Box>
+  );
+};
+
+// ============================================================================
+// 1. LEFT COLUMN: Configurator
+// ============================================================================
 const Configurator = ({ isSimMode, toggleSimMode, configState, setConfigState }) => {
   const forceGreen = async () => {
     try {
       await axios.post('http://localhost:8000/api/command', { action: "FORCE_GREEN", node_id: "NODE_A" });
       alert("EMERGENCY SIGNAL BROADCASTED: Node A Forced to GREEN for 15s.");
-    } catch (e) {
-      alert("Connection Error: Backend Command API Offline.");
-    }
+    } catch (e) { alert("Connection Error: Backend Command API Offline."); }
   };
 
   const restartVideo = async () => {
     try {
       await axios.post('http://localhost:8000/api/command', { action: "RESTART_VIDEO", node_id: "NODE_A" });
-    } catch (e) { alert("Connection Error: Backend Command API Offline."); }
+    } catch (e) { alert("Connection Error."); }
   };
 
   return (
-    <DashboardCard title="Configurator" headerBg="bg-capgemini-darkBlue" textColor="text-white" accentColor="border-capgemini-blue">
-      <div className="space-y-4 flex-1 flex flex-col overflow-y-auto pr-2 custom-scrollbar">
-        
-        {/* 🎚️ TOGGLES */}
-        <div className="space-y-2 shrink-0">
-          <div className="flex justify-between items-center bg-capgemini-gray bg-opacity-50 p-3 rounded-lg border border-gray-100 shadow-sm">
-            <span className="font-semibold text-sm text-gray-700">Simulation Mode</span>
-            <div onClick={toggleSimMode} className={`w-12 h-6 rounded-full relative cursor-pointer shadow-inner transition-colors duration-300 ${isSimMode ? 'bg-capgemini-lightBlue' : 'bg-gray-300'}`}>
-              <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-all duration-300 ${isSimMode ? 'left-6' : 'left-0.5'}`}></div>
-            </div>
-          </div>
-          
-          <div className="flex justify-between items-center bg-capgemini-gray bg-opacity-50 p-3 rounded-lg border border-gray-100 shadow-sm">
-            <span className="font-semibold text-sm text-gray-700 flex items-center gap-2"><Moon size={16} className="text-capgemini-blue"/> Night Mode</span>
-            <div onClick={() => setConfigState({...configState, nightMode: !configState.nightMode})} className={`w-12 h-6 rounded-full relative cursor-pointer shadow-inner transition-colors duration-300 ${configState.nightMode ? 'bg-capgemini-darkBlue' : 'bg-gray-300'}`}>
-              <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-all duration-300 ${configState.nightMode ? 'left-6' : 'left-0.5'}`}></div>
-            </div>
-          </div>
-        </div>
+    <Paper sx={{ p: 3, height: '100%', gap: 3 }}>
+      <Typography variant="subtitle1" color="primary" sx={{ borderBottom: '2px solid #002b5c', pb: 1.5 }}>
+        Configurator
+      </Typography>
 
-        {/* 🚨 EMERGENCY TRAFFIC CONTROL */}
-        <div className="space-y-2 shrink-0">
-          <button 
-            onClick={forceGreen}
-            className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 group border-2 border-red-500 hover:border-red-400"
-          >
-            <ShieldAlert size={20} className="group-hover:animate-pulse" />
-            FORCE EMERGENCY GREEN
-          </button>
-          
-          <button 
-            onClick={restartVideo}
-            className="w-full bg-capgemini-darkBlue hover:bg-capgemini-blue text-white font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow transition-all active:scale-95"
-          >
-            <RefreshCw size={16} />
-            RESTART SIMULATION
-          </button>
-        </div>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, bgcolor: '#f8fafc', p: 2, borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="body2" fontWeight="bold" color="#334155">Simulation Mode</Typography>
+          <Switch checked={isSimMode} onChange={toggleSimMode} color="secondary" />
+        </Box>
+        <Divider />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <DarkModeIcon sx={{ fontSize: 16, color: '#64748b' }} />
+            <Typography variant="body2" fontWeight="bold" color="#334155">Night Mode</Typography>
+          </Box>
+          <Switch checked={configState.nightMode} onChange={(e) => setConfigState({...configState, nightMode: e.target.checked})} color="primary" />
+        </Box>
+      </Box>
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Button variant="contained" color="error" startIcon={<WarningIcon />} onClick={forceGreen} fullWidth sx={{ py: 1.5 }}>FORCE EMERGENCY GREEN</Button>
+        <Button variant="outlined" color="primary" startIcon={<RestartAltIcon />} onClick={restartVideo} fullWidth sx={{ py: 1.5 }}>RESTART SIMULATION</Button>
+      </Box>
+
+      <Box sx={{ flex: 1, mt: 1, px: 1, overflowY: 'auto' }}>
+        <Typography variant="caption" color="textSecondary" fontWeight="bold">POLLING RATE (MS)</Typography>
+        <Slider value={configState.refreshRate} min={100} max={5000} step={100} onChange={(e, val) => setConfigState({...configState, refreshRate: val})} color="secondary" valueLabelDisplay="auto" />
         
-        {/* 🎛️ SLIDERS */}
-        <div className="space-y-3 shrink-0 bg-gray-50 p-3 rounded-xl border border-gray-200 shadow-inner">
-          <div>
-            <div className="flex justify-between text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider"><span>Polling Rate</span><span className="text-capgemini-blue">{configState.refreshRate} ms</span></div>
-            <input type="range" min="100" max="5000" step="100" value={configState.refreshRate} onChange={(e) => setConfigState({...configState, refreshRate: e.target.value})} className="w-full accent-capgemini-blue cursor-pointer h-1.5 bg-gray-200 rounded-lg appearance-none" />
-          </div>
-          <div>
-            <div className="flex justify-between text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider"><span>Brightness</span><span className="text-capgemini-blue">{configState.brightness}%</span></div>
-            <input type="range" min="50" max="200" value={configState.brightness} onChange={(e) => setConfigState({...configState, brightness: e.target.value})} className="w-full accent-capgemini-turquoise cursor-pointer h-1.5 bg-gray-200 rounded-lg appearance-none" />
-          </div>
-          <div>
-            <div className="flex justify-between text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider"><span>Contrast</span><span className="text-capgemini-blue">{configState.contrast}%</span></div>
-            <input type="range" min="50" max="200" value={configState.contrast} onChange={(e) => setConfigState({...configState, contrast: e.target.value})} className="w-full accent-capgemini-lightBlue cursor-pointer h-1.5 bg-gray-200 rounded-lg appearance-none" />
-          </div>
-          <div>
-            <div className="flex justify-between text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider"><span>Saturation</span><span className="text-capgemini-blue">{configState.saturation}%</span></div>
-            <input type="range" min="0" max="300" value={configState.saturation} onChange={(e) => setConfigState({...configState, saturation: e.target.value})} className="w-full accent-capgemini-blue cursor-pointer h-1.5 bg-gray-200 rounded-lg appearance-none" />
-          </div>
-        </div>
-      </div>
-    </DashboardCard>
+        <Box sx={{ mt: 1.5 }}>
+          <Typography variant="caption" color="textSecondary" fontWeight="bold">BRIGHTNESS</Typography>
+          <Slider value={configState.brightness} min={50} max={200} onChange={(e, val) => setConfigState({...configState, brightness: val})} color="secondary" />
+        </Box>
+
+        <Box sx={{ mt: 1.5 }}>
+          <Typography variant="caption" color="textSecondary" fontWeight="bold">CONTRAST</Typography>
+          <Slider value={configState.contrast} min={50} max={200} onChange={(e, val) => setConfigState({...configState, contrast: val})} color="secondary" />
+        </Box>
+
+        <Box sx={{ mt: 1.5 }}>
+          <Typography variant="caption" color="textSecondary" fontWeight="bold">SATURATION</Typography>
+          <Slider value={configState.saturation} min={0} max={300} onChange={(e, val) => setConfigState({...configState, saturation: val})} color="secondary" />
+        </Box>
+      </Box>
+    </Paper>
   );
 };
 
-// --- 2. Middle Column: Camera & Control Center ---
+// ============================================================================
+// 2. MIDDLE COLUMN: Video & Table
+// ============================================================================
 const CameraView = ({ isSimMode, configState }) => {
-  const [isPlaying, setIsPlaying] = useState(true);
-  const videoContainerRef = useRef(null);
-
-  const toggleFullScreen = () => {
-    if (videoContainerRef.current && videoContainerRef.current.requestFullscreen) {
-      videoContainerRef.current.requestFullscreen();
-    }
-  };
-
   const videoFilters = `
     brightness(${configState.brightness}%) 
     contrast(${configState.contrast}%) 
-    saturate(${configState.saturation}%) 
+    saturate(${configState.saturation}%)
     ${configState.nightMode ? 'invert(1) hue-rotate(180deg) grayscale(20%)' : ''}
   `;
 
   return (
-    <div ref={videoContainerRef} className="flex-1 min-h-0 relative rounded-xl shadow-lg border-4 border-capgemini-darkBlue overflow-hidden bg-black flex items-center justify-center group">
-      <div className="absolute top-0 left-0 w-full bg-gradient-to-b from-black/80 to-transparent p-4 flex justify-between items-start z-20">
-        <div className="text-white">
-          <span className="font-bold tracking-widest uppercase text-xs drop-shadow-md">Node A - Live Feed</span>
-        </div>
-        <div className="flex gap-3 items-center">
-          <button onClick={toggleFullScreen} className="bg-white/20 hover:bg-white/40 p-1.5 rounded text-white transition-colors shadow-md backdrop-blur-sm" title="Full Screen">
-            <Maximize size={16} />
-          </button>
-          <div className={`flex items-center gap-2 text-[10px] font-black text-white px-3 py-1.5 rounded-full shadow-lg transition-colors ${isSimMode ? 'bg-capgemini-turquoise/90' : 'bg-red-600/90'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full bg-white ${isSimMode && isPlaying ? 'animate-pulse' : ''}`}></div>
-            {isSimMode ? (isPlaying ? 'LIVE' : 'PAUSED') : 'OFFLINE'}
-          </div>
-        </div>
-      </div>
+    <Paper sx={{ flexShrink: 0, height: 420, backgroundColor: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', borderRadius: 2, border: 'none' }}>
+      <Box sx={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}>
+        <Typography variant="caption" sx={{ color: 'white', backgroundColor: 'rgba(0,0,0,0.7)', px: 1.5, py: 0.5, borderRadius: 1, fontWeight: 'bold', letterSpacing: 1 }}>
+          NODE_A (NABEUL) - LIVE
+        </Typography>
+      </Box>
       
       {isSimMode ? (
-        <div className="relative w-full h-full flex items-center justify-center bg-black">
-          {isPlaying ? (
-            <img 
-              src="http://localhost:8000/api/video_feed/NODE_A" 
-              alt="Live Stream"
-              className="w-full h-full object-contain transition-opacity duration-500"
-              style={{ filter: videoFilters }} 
-              onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-            />
-          ) : (
-            <div className="flex flex-col items-center text-capgemini-lightBlue animate-pulse">
-              <Activity size={48} className="mb-2" />
-              <span className="text-xs font-mono tracking-widest uppercase">[ Stream Paused ]</span>
-            </div>
-          )}
-
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-black/60 backdrop-blur-md px-6 py-2 rounded-full border border-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-30 shadow-2xl">
-            <button onClick={() => setIsPlaying(!isPlaying)} className="text-white hover:text-capgemini-lightBlue transition-colors font-bold text-xs tracking-wider">
-              {isPlaying ? "PAUSE FEED" : "RESUME FEED"}
-            </button>
-          </div>
-        </div>
+        <img src="http://localhost:8000/api/video_feed/NODE_A" alt="Live Stream" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: videoFilters, transition: 'filter 0.3s ease' }} />
       ) : (
-        <div className="flex flex-col items-center justify-center text-gray-400 font-mono text-sm tracking-widest p-8 text-center">
-          <VideoOff size={48} className="mb-4 opacity-50 text-red-400" />
-          <span className="text-lg font-bold text-white mb-2 uppercase tracking-widest">[ Hardware Offline ]</span>
-        </div>
+        <Box sx={{ textAlign: 'center', color: '#64748b' }}>
+          <VideocamOffIcon sx={{ fontSize: 64, color: '#d13239', mb: 2, opacity: 0.8 }} />
+          <Typography variant="button" display="block" sx={{ letterSpacing: 2 }}>Hardware Offline</Typography>
+        </Box>
       )}
-    </div>
+    </Paper>
   );
 };
 
-const ScanLogs = ({ refreshRate }) => {
+const ScanLogsTable = ({ refreshRate }) => {
   const [logs, setLogs] = useState([]);
 
   useEffect(() => {
@@ -175,7 +198,7 @@ const ScanLogs = ({ refreshRate }) => {
       try {
         const response = await axios.get('http://localhost:8000/api/violations?limit=5');
         setLogs(response.data);
-      } catch (error) { console.error("API error", error); }
+      } catch (error) { console.error(error); }
     };
     fetchLogs();
     const interval = setInterval(fetchLogs, refreshRate); 
@@ -183,159 +206,59 @@ const ScanLogs = ({ refreshRate }) => {
   }, [refreshRate]);
 
   return (
-    <div className="h-[280px] shrink-0 flex flex-col">
-      <DashboardCard title="ALPR Scan Logs" headerBg="bg-capgemini-blue" textColor="text-white" accentColor="border-capgemini-lightBlue">
-        <div className="flex-1 overflow-y-auto text-sm pr-2">
-          <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 bg-white z-10 shadow-sm">
-              <tr className="bg-gray-50 text-[10px] uppercase tracking-widest text-gray-500">
-                <th className="p-3 font-bold rounded-tl-lg">Timestamp</th>
-                <th className="p-3 font-bold">Plate / ID</th>
-                <th className="p-3 font-bold">Type</th>
-                <th className="p-3 font-bold text-right rounded-tr-lg">Fine</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log, index) => (
-                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                  <td className="p-3 text-gray-600 font-mono text-xs">{log.timestamp.split(' ')[1]}</td>
-                  <td className="p-3 font-bold text-capgemini-darkBlue uppercase text-xs">{log.plate_number || log.vehicle_id}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded text-[9px] font-black uppercase whitespace-nowrap ${log.violation_type === 'RED_LIGHT' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+    <Paper sx={{ width: '100%', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <Typography variant="subtitle1" color="primary" sx={{ p: 2, borderBottom: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
+        ALPR Scan Logs
+      </Typography>
+      <TableContainer sx={{ flex: 1, overflowY: 'auto' }}>
+        <Table stickyHeader size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Time of Issue</TableCell>
+              <TableCell>Vehicle / Plate</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell align="right">Fine</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {logs.map((log, idx) => (
+              <TableRow key={idx} hover>
+                <TableCell sx={{ color: '#475569' }}>{log.timestamp}</TableCell>
+                <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#0f172a' }}>{log.plate_number || log.vehicle_id}</TableCell>
+                <TableCell>
+                   <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold', backgroundColor: log.violation_type === 'RED_LIGHT' ? '#fee2e2' : '#ffedd5', color: log.violation_type === 'RED_LIGHT' ? '#dc2626' : '#ea580c' }}>
                       {log.violation_type.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right font-black text-capgemini-blue whitespace-nowrap text-xs">{log.fine_amount} TND</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </DashboardCard>
-    </div>
+                   </span>
+                </TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold', color: '#00a0d1' }}>{log.fine_amount} TND</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Paper>
   );
 };
 
-// --- 3. Right Column: Env Data & Export ---
-const EnvData = () => {
+// ============================================================================
+// 3. RIGHT COLUMN: Env Data, Export & Analytics
+// ============================================================================
+const RightColumnPanel = ({ refreshRate }) => {
+  const [timeframe, setTimeframe] = useState('all');
   const [weatherData, setWeatherData] = useState("Fetching API...");
+  const [totalViolations, setTotalViolations] = useState(0);
 
   useEffect(() => {
     axios.get("https://api.open-meteo.com/v1/forecast?latitude=36.4561&longitude=10.7376&current_weather=true")
-      .then(res => {
-        const temp = res.data.current_weather.temperature;
-        const wind = res.data.current_weather.windspeed;
-        setWeatherData(`${temp}°C | Wind: ${wind} km/h`);
-      })
+      .then(res => setWeatherData(`${res.data.current_weather.temperature}°C | Wind: ${res.data.current_weather.windspeed} km/h`))
       .catch(() => setWeatherData("API Offline"));
   }, []);
 
-  // ADVANCED DYNAMIC EXPORT LOGIC (WITH TIMEFRAME FILTERS)
-  const handleExport = async (format) => {
-    try {
-      // 1. Grab the currently selected timeframe from the dropdown
-      const selectedTimeframe = document.getElementById('timeframe').value;
-      
-      // 2. Fetch the filtered data from the backend
-      const response = await axios.get(`http://localhost:8000/api/violations?limit=999999&timeframe=${selectedTimeframe}`);
-      const allLogs = response.data;
-      const totalViolationsReached = allLogs.length; 
-
-      if (format === 'pdf') {
-        const doc = new jsPDF();
-        
-        doc.setFontSize(16);
-        // Dynamically change the PDF Title!
-        const reportTitle = `Capgemini Smart City - ${selectedTimeframe.toUpperCase()} Report`;
-        doc.text(reportTitle, 14, 15);
-        
-        doc.setFontSize(11);
-        doc.setTextColor(0, 112, 173); 
-        doc.text(`Total Violations Reached: ${totalViolationsReached}`, 14, 23);
-        
-        const tableData = allLogs.map(log => [
-          log.id || log.vehicle_id, 
-          log.plate_number, 
-          log.timestamp, 
-          log.image_path 
-        ]);
-
-        autoTable(doc, {
-          head: [['ID (Inc)', 'Car Number', 'Time', 'Image Link']],
-          body: tableData,
-          startY: 28, 
-          styles: { fontSize: 8, cellPadding: 2 },
-          headStyles: { fillColor: [0, 112, 173] } 
-        });
-
-        doc.save(`Capgemini_${selectedTimeframe}_Report.pdf`);
-      } 
-      else if (format === 'excel') {
-        const excelData = allLogs.map(log => ({
-          "ID (Inc)": log.id || log.vehicle_id,
-          "Car Number": log.plate_number,
-          "Time": log.timestamp,
-          "Image Link": log.image_path
-        }));
-
-        const worksheet = XLSX.utils.json_to_sheet(excelData);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, `${selectedTimeframe}_violations`);
-        XLSX.writeFile(workbook, `Capgemini_${selectedTimeframe}_Report.xlsx`);
-      }
-    } catch (error) {
-      alert("Export failed: " + error.message);
-    }
-  };
-
-  return (
-    <div className="flex-1 min-h-0 flex flex-col mb-4">
-      <DashboardCard title="Environment & Export" headerBg="bg-white" textColor="text-capgemini-darkBlue" accentColor="border-capgemini-turquoise" extraHeader={<div className="text-xs font-bold text-capgemini-turquoise bg-capgemini-turquoise/10 px-2 py-1 rounded shrink-0">SYNCED</div>}>
-        <div className="space-y-4 flex-1 flex flex-col justify-between overflow-y-auto">
-          {/* Environment Stats */}
-          <div className="space-y-3">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-2 shrink-0">
-              <span className="text-gray-500 font-semibold text-xs uppercase">Weather (Nabeul)</span>
-              <span className="font-bold text-xs text-capgemini-blue">{weatherData}</span>
-            </div>
-            <div className="flex justify-between items-center shrink-0">
-              <span className="text-gray-500 font-semibold text-xs uppercase">Active Node</span>
-              <span className="font-bold bg-capgemini-darkBlue text-white px-3 py-1 rounded-md text-[10px] uppercase shadow-sm">Nabeul, TN</span>
-            </div>
-          </div>
-
-          {/* Report Generator Control WITH DROPDOWN */}
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-inner">
-            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <Download size={14} /> Generate Report
-            </h3>
-            
-            {/* 👇 TIMEFRAME DROPDOWN ADDED HERE */}
-            <select id="timeframe" className="w-full text-xs p-2 rounded-lg border border-gray-300 font-semibold text-capgemini-darkBlue mb-3 outline-none focus:ring-2 focus:ring-capgemini-lightBlue">
-              <option value="all">All-Time History</option>
-              <option value="daily">Daily Summary (Last 24h)</option>
-              <option value="weekly">Weekly Overview (Last 7 Days)</option>
-              <option value="monthly">Monthly Audit (Last 30 Days)</option>
-            </select>
-
-            <div className="flex gap-3">
-              <button onClick={() => handleExport('pdf')} className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded-lg transition-colors shadow-md">PDF</button>
-              <button onClick={() => handleExport('excel')} className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-2 rounded-lg transition-colors shadow-md">EXCEL</button>
-            </div>
-          </div>
-        </div>
-      </DashboardCard>
-    </div>
-  );
-};
-
-const ResultsView = ({ refreshRate }) => {
-  const [total, setTotal] = useState(0);
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const res = await axios.get('http://localhost:8000/api/stats');
-        setTotal(res.data.total_violations);
+        setTotalViolations(res.data.total_violations);
       } catch (e) { }
     };
     fetchStats();
@@ -343,74 +266,208 @@ const ResultsView = ({ refreshRate }) => {
     return () => clearInterval(interval);
   }, [refreshRate]);
 
+  const handleExport = async (format) => {
+    try {
+      const response = await axios.get(`http://localhost:8000/api/violations?limit=999999&timeframe=${timeframe}`);
+      const allLogs = response.data;
+
+      if (format === 'pdf') {
+        const doc = new jsPDF();
+        doc.setFontSize(16);
+        doc.text(`Capgemini Smart City - ${timeframe.toUpperCase()} Report`, 14, 15);
+        doc.setFontSize(11);
+        doc.setTextColor(0, 112, 173); 
+        doc.text(`Total Violations Reached: ${allLogs.length}`, 14, 23);
+        
+        const tableData = allLogs.map(log => [log.id || log.vehicle_id, log.plate_number, log.timestamp, "View Evidence"]);
+        autoTable(doc, {
+          head: [['ID (Inc)', 'Car Number', 'Time', 'Image Link']],
+          body: tableData,
+          startY: 28, 
+          styles: { fontSize: 8, cellPadding: 2 },
+          headStyles: { fillColor: [0, 112, 173] },
+          columnStyles: { 3: { textColor: [0, 112, 173], fontStyle: 'bold' } },
+          didDrawCell: (data) => {
+            if (data.column.index === 3 && data.cell.section === 'body' && allLogs[data.row.index].image_path) {
+              doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: allLogs[data.row.index].image_path });
+            }
+          }
+        });
+        doc.save(`Capgemini_${timeframe}_Report.pdf`);
+      } 
+      else if (format === 'excel') {
+        const excelData = allLogs.map(log => ({
+          "ID (Inc)": log.id || log.vehicle_id, "Car Number": log.plate_number, "Time": log.timestamp, "Image Link": log.image_path
+        }));
+        const worksheet = XLSX.utils.json_to_sheet(excelData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, `${timeframe}_violations`);
+        XLSX.writeFile(workbook, `Capgemini_${timeframe}_Report.xlsx`);
+      }
+    } catch (error) { alert("Export failed: " + error.message); }
+  };
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      <DashboardCard title="Analytics" headerBg="bg-white" textColor="text-capgemini-darkBlue" accentColor="border-capgemini-blue">
-        <div className="flex-1 flex flex-col justify-center items-center shrink-0">
-          <div className="text-8xl font-black text-capgemini-darkBlue mb-4 tracking-tighter transition-all duration-300 drop-shadow-sm">
-            {total}
-          </div>
-          <div className="text-xs font-bold text-capgemini-blue uppercase tracking-widest bg-capgemini-blue/10 px-6 py-2 rounded-full shadow-sm">
-            Total Violations
-          </div>
-        </div>
-      </DashboardCard>
-    </div>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 3 }}>
+      <Paper sx={{ p: 4, textAlign: 'center', bgcolor: '#ffffff', borderTop: '4px solid #00a0d1' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 2 }}>
+          <AssessmentIcon color="secondary" />
+          <Typography variant="subtitle1" color="primary">Analytics</Typography>
+        </Box>
+        <Typography variant="h2" sx={{ fontWeight: 900, color: '#002b5c', my: 1 }}>{totalViolations}</Typography>
+        <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700, letterSpacing: 1.5 }}>TOTAL VIOLATIONS</Typography>
+      </Paper>
+
+      <Paper sx={{ p: 3, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #002b5c', pb: 1.5, mb: 2 }}>
+            <Typography variant="subtitle1" color="primary">Environment</Typography>
+            <CloudSyncIcon color="secondary" />
+          </Box>
+          <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
+            <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700 }}>WEATHER (NABEUL)</Typography>
+            <Typography variant="body2" sx={{ fontWeight: 800, color: '#0f172a', mt: 0.5 }}>{weatherData}</Typography>
+          </Box>
+        </Box>
+
+        <Divider />
+        
+        <Box>
+          <Typography variant="subtitle1" color="primary" sx={{ mb: 2 }}>Export Data</Typography>
+          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+            <InputLabel>Timeframe Filter</InputLabel>
+            <Select value={timeframe} label="Timeframe Filter" onChange={(e) => setTimeframe(e.target.value)}>
+              <MenuItem value="all">All-Time History</MenuItem>
+              <MenuItem value="daily">Daily Summary</MenuItem>
+              <MenuItem value="weekly">Weekly Overview</MenuItem>
+              <MenuItem value="monthly">Monthly Audit</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <Button variant="contained" color="error" fullWidth startIcon={<DownloadIcon />} onClick={() => handleExport('pdf')}>PDF</Button>
+            <Button variant="contained" color="success" fullWidth startIcon={<DownloadIcon />} sx={{ bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }} onClick={() => handleExport('excel')}>EXCEL</Button>
+          </Box>
+        </Box>
+      </Paper>
+    </Box>
   );
 };
 
-// --- Master Layout Assembly ---
+// ============================================================================
+// MASTER LAYOUT
+// ============================================================================
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSimulationMode, setIsSimulationMode] = useState(false);
+  const [currentTab, setCurrentTab] = useState(0);
   
   const [config, setConfig] = useState({ 
     refreshRate: 500, 
-    brightness: 100,
-    contrast: 100,
-    saturation: 100,
-    nightMode: false
+    brightness: 100, 
+    contrast: 100, 
+    saturation: 100, 
+    nightMode: false 
   });
 
+  if (!isAuthenticated) {
+    return (
+      <ThemeProvider theme={capgeminiTheme}>
+        <CssBaseline />
+        <GlobalStyles styles={{ 
+          '*, *::before, *::after': { boxSizing: 'border-box' },
+          '#root': { width: '100vw', height: '100vh', margin: 0, padding: 0, maxWidth: 'none', overflow: 'hidden' }, 
+          body: { margin: 0, padding: 0, overflow: 'hidden' } 
+        }} />
+        <LoginScreen onLogin={() => setIsAuthenticated(true)} />
+      </ThemeProvider>
+    );
+  }
+
   return (
-    <div className="h-screen w-screen bg-[#E5E7EB] flex flex-col font-sans overflow-hidden">
+    <ThemeProvider theme={capgeminiTheme}>
+      <CssBaseline />
       
-      {/* Global Header */}
-      <header className="bg-capgemini-darkBlue text-white px-8 py-4 flex justify-between items-center shadow-lg z-50 shrink-0">
-        <div className="flex items-center gap-6">
-          <h1 className="text-3xl font-black tracking-widest border-r-2 border-white/20 pr-6 uppercase italic">Capgemini</h1>
-          <p className="text-capgemini-lightBlue text-[10px] font-black uppercase tracking-[0.4em]">Smart City ADAS Platform</p>
-        </div>
-        <div className="bg-capgemini-blue px-6 py-1.5 rounded-full text-xs font-black shadow-inner uppercase tracking-wider">
-          Sys_Admin
-        </div>
-      </header>
+      {/* 🚀 CSS NUKE: FORCES STRICT FULL-WIDTH BORDER-BOX SIZING 🚀 */}
+      <GlobalStyles styles={{ 
+        '*, *::before, *::after': { boxSizing: 'border-box' },
+        '#root': { width: '100vw', height: '100vh', margin: 0, padding: 0, maxWidth: 'none', overflow: 'hidden' }, 
+        body: { margin: 0, padding: 0, overflow: 'hidden', width: '100vw', height: '100vh' },
+        '*::-webkit-scrollbar': { width: '6px' },
+        '*::-webkit-scrollbar-track': { background: '#f1f5f9' },
+        '*::-webkit-scrollbar-thumb': { background: '#cbd5e1', borderRadius: '4px' },
+        '*::-webkit-scrollbar-thumb:hover': { background: '#94a3b8' }
+      }} />
 
-      {/* Main Grid Layout */}
-      <main className="flex-1 p-6 grid grid-cols-12 gap-6 overflow-hidden min-h-0">
+      <Box sx={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         
-        {/* LEFT COLUMN */}
-        <div className="col-span-3 h-full flex flex-col min-h-0">
-          <Configurator 
-            isSimMode={isSimulationMode} 
-            toggleSimMode={() => setIsSimulationMode(!isSimulationMode)} 
-            configState={config} 
-            setConfigState={setConfig} 
-          />
-        </div>
+        {/* TOP NAVBAR */}
+        <AppBar position="static" elevation={0} sx={{ bgcolor: '#002b5c', width: '100%', flexShrink: 0 }}>
+          <Toolbar variant="dense" sx={{ minHeight: '64px', px: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+              <img src="/capgemini-logo.png" alt="Capgemini Engineering" style={{ height: '46px', objectFit: 'contain' }} />
+              <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1.25rem', ml: 3, pl: 3, borderLeft: '1px solid #33557a' }}>
+                SCRIVE-ADAS
+              </Typography>
+            </Box>
+            
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Typography variant="body2" sx={{ color: '#a0b2c6', fontWeight: 600, mr: 2 }}>
+                v1.3.44 <span style={{ margin: '0 10px' }}>|</span> SYS_ADMIN
+              </Typography>
+              <IconButton color="inherit" onClick={() => setIsAuthenticated(false)} title="Logout" sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}>
+                <LogoutIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Toolbar>
+        </AppBar>
 
-        {/* MIDDLE COLUMN */}
-        <div className="col-span-6 h-full flex flex-col gap-6 min-h-0">
-          <CameraView isSimMode={isSimulationMode} configState={config} />
-          <ScanLogs refreshRate={config.refreshRate} />
-        </div>
+        {/* REFINED TAB ROW */}
+        <Box sx={{ bgcolor: '#001c3d', px: 4, flexShrink: 0, borderBottom: '1px solid #e2e8f0', width: '100%' }}>
+          <Tabs value={currentTab} onChange={(e, val) => setCurrentTab(val)} textColor="inherit" indicatorColor="secondary">
+            <Tab label="DASHBOARD" />
+            <Tab label="EDGE NODES" />
+            <Tab label="REPORTS" />
+            <Tab label="SETTINGS" />
+          </Tabs>
+        </Box>
 
-        {/* RIGHT COLUMN */}
-        <div className="col-span-3 h-full flex flex-col gap-6 min-h-0">
-          <EnvData />
-          <ResultsView refreshRate={config.refreshRate} />
-        </div>
+        {/* 🎯 THE FIX: PURE CSS GRID INSTEAD OF MUI <Grid> 🎯 */}
+        <Box sx={{ flex: 1, p: 3, overflow: 'hidden', width: '100%' }}>
+          {currentTab === 0 ? (
+            <Box sx={{ 
+              display: 'grid', 
+              gridTemplateColumns: '3fr 6fr 3fr', // Forces 25% | 50% | 25% distribution mathematically
+              gap: '24px', 
+              height: '100%', 
+              width: '100%' 
+            }}>
+              
+              {/* LEFT COLUMN */}
+              <Box sx={{ height: '100%', minWidth: 0 }}>
+                <Configurator isSimMode={isSimulationMode} toggleSimMode={() => setIsSimulationMode(!isSimulationMode)} configState={config} setConfigState={setConfig} />
+              </Box>
 
-      </main>
-    </div>
+              {/* MIDDLE COLUMN */}
+              <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
+                <CameraView isSimMode={isSimulationMode} configState={config} />
+                <ScanLogsTable refreshRate={config.refreshRate} />
+              </Box>
+
+              {/* RIGHT COLUMN */}
+              <Box sx={{ height: '100%', minWidth: 0 }}>
+                <RightColumnPanel refreshRate={config.refreshRate} />
+              </Box>
+
+            </Box>
+          ) : (
+            <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Typography variant="h5" color="textSecondary">This module is locked in the demo environment.</Typography>
+            </Box>
+          )}
+        </Box>
+
+      </Box>
+    </ThemeProvider>
   );
 }
