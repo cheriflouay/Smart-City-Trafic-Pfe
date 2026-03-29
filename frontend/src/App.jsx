@@ -80,7 +80,7 @@ const LoginScreen = ({ onLogin }) => {
     <Box sx={{ height: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#002b5c', backgroundImage: 'linear-gradient(135deg, #002b5c 0%, #001229 100%)' }}>
       <Paper elevation={24} sx={{ p: 5, width: '100%', maxWidth: 420, borderRadius: 4, textAlign: 'center', border: 'none' }}>
         <img src="/capgemini-logo.png" alt="Capgemini Logo" style={{ height: '56px', marginBottom: '24px', objectFit: 'contain' }} />
-        <Typography variant="h6" sx={{ color: '#002b5c', mb: 1 }}>SCRIVE-ADAS PLATFORM</Typography>
+        <Typography variant="h6" sx={{ color: '#002b5c', mb: 1 }}>SMART CITY ADAS PLATFORM</Typography>
         <Typography variant="body2" sx={{ color: '#64748b', mb: 4 }}>Please sign in to access the control panel.</Typography>
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -162,7 +162,7 @@ const Configurator = ({ isSimMode, toggleSimMode, configState, setConfigState })
 // ============================================================================
 // 2. MIDDLE COLUMN: Video & Table
 // ============================================================================
-const CameraView = ({ isSimMode, configState }) => {
+const CameraView = ({ isSimMode, configState, activeNode, setActiveNode }) => {
   const videoFilters = `
     brightness(${configState.brightness}%) 
     contrast(${configState.contrast}%) 
@@ -172,14 +172,34 @@ const CameraView = ({ isSimMode, configState }) => {
 
   return (
     <Paper sx={{ flexShrink: 0, height: 420, backgroundColor: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', borderRadius: 2, border: 'none' }}>
-      <Box sx={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}>
-        <Typography variant="caption" sx={{ color: 'white', backgroundColor: 'rgba(0,0,0,0.7)', px: 1.5, py: 0.5, borderRadius: 1, fontWeight: 'bold', letterSpacing: 1 }}>
-          NODE_A (NABEUL) - LIVE
-        </Typography>
+      
+      {/* 🟢 NEW CAMERA SWITCHER BUTTONS */}
+      <Box sx={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 1 }}>
+        {['NODE_A', 'NODE_B', 'NODE_C'].map((node) => (
+          <Button 
+            key={node}
+            size="small"
+            onClick={() => setActiveNode(node)}
+            sx={{ 
+              bgcolor: activeNode === node ? '#00e676' : 'rgba(0,0,0,0.6)', 
+              color: activeNode === node ? '#000000' : '#ffffff', 
+              fontWeight: 900,
+              fontSize: '0.7rem',
+              letterSpacing: 1,
+              '&:hover': { bgcolor: activeNode === node ? '#00c853' : 'rgba(0,0,0,0.8)' }
+            }}
+          >
+            {activeNode === node ? 'LIVE: ' : ''} {node}
+          </Button>
+        ))}
       </Box>
       
       {isSimMode ? (
-        <img src="http://localhost:8000/api/video_feed/NODE_A" alt="Live Stream" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: videoFilters, transition: 'filter 0.3s ease' }} />
+        <img 
+          src={`http://localhost:8000/api/video_feed/${activeNode}`} 
+          alt="Live Stream" 
+          style={{ width: '100%', height: '100%', objectFit: 'contain', filter: videoFilters, transition: 'filter 0.3s ease' }} 
+        />
       ) : (
         <Box sx={{ textAlign: 'center', color: '#64748b' }}>
           <VideocamOffIcon sx={{ fontSize: 64, color: '#d13239', mb: 2, opacity: 0.8 }} />
@@ -353,7 +373,90 @@ const RightColumnPanel = ({ refreshRate }) => {
     </Box>
   );
 };
+// ============================================================================
+// 🧱 MOCKED TABS FOR JURY PRESENTATION (UI ONLY)
+// ============================================================================
 
+const EdgeNodesTab = () => (
+  <Paper sx={{ p: 3, height: '100%', border: '1px solid #e2e8f0' }}>
+    <Typography variant="h6" color="primary" sx={{ mb: 2, borderBottom: '2px solid #002b5c', pb: 1 }}>
+      Network Topology & Edge Hardware
+    </Typography>
+    <TableContainer>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Node ID</TableCell>
+            <TableCell>Location</TableCell>
+            <TableCell>IP Address</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Last Ping</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          <TableRow hover>
+            <TableCell sx={{ fontWeight: 'bold' }}>NODE_A_NABEUL</TableCell>
+            <TableCell>Nabeul Center, Route 1</TableCell>
+            <TableCell sx={{ fontFamily: 'monospace' }}>192.168.1.105</TableCell>
+            <TableCell><span style={{ backgroundColor: '#dcfce7', color: '#16a34a', padding: '4px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>ONLINE</span></TableCell>
+            <TableCell>2ms ago</TableCell>
+          </TableRow>
+          <TableRow hover>
+            <TableCell sx={{ fontWeight: 'bold' }}>NODE_B_TUNIS</TableCell>
+            <TableCell>Tunis, Avenue Habib Bourguiba</TableCell>
+            <TableCell sx={{ fontFamily: 'monospace' }}>192.168.1.106</TableCell>
+            <TableCell><span style={{ backgroundColor: '#fee2e2', color: '#dc2626', padding: '4px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>OFFLINE</span></TableCell>
+            <TableCell>4 hrs ago</TableCell>
+          </TableRow>
+          <TableRow hover>
+            <TableCell sx={{ fontWeight: 'bold' }}>NODE_C_SOUSSE</TableCell>
+            <TableCell>Sousse, Corniche</TableCell>
+            <TableCell sx={{ fontFamily: 'monospace' }}>192.168.1.107</TableCell>
+            <TableCell><span style={{ backgroundColor: '#fef3c7', color: '#d97706', padding: '4px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>MAINTENANCE</span></TableCell>
+            <TableCell>1 day ago</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </TableContainer>
+  </Paper>
+);
+
+const ReportsTab = () => (
+  <Paper sx={{ p: 3, height: '100%', border: '1px solid #e2e8f0' }}>
+    <Typography variant="h6" color="primary" sx={{ mb: 2, borderBottom: '2px solid #002b5c', pb: 1 }}>
+      Generated Compliance Audits
+    </Typography>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 3 }}>
+      {[1, 2, 3, 4, 5].map((item) => (
+        <Paper key={item} sx={{ p: 2, border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 2, bgcolor: '#f8fafc', cursor: 'pointer', '&:hover': { borderColor: '#00a0d1' } }}>
+          <Box sx={{ bgcolor: '#fee2e2', color: '#dc2626', p: 1.5, borderRadius: 1, fontWeight: 'bold' }}>PDF</Box>
+          <Box>
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: '#002b5c' }}>Nabeul_Weekly_Audit_0{item}.pdf</Typography>
+            <Typography variant="caption" sx={{ color: '#64748b' }}>Generated: March {10 + item}, 2026</Typography>
+          </Box>
+        </Paper>
+      ))}
+    </Box>
+  </Paper>
+);
+
+const SettingsTab = () => (
+  <Paper sx={{ p: 3, height: '100%', border: '1px solid #e2e8f0' }}>
+    <Typography variant="h6" color="primary" sx={{ mb: 3, borderBottom: '2px solid #002b5c', pb: 1 }}>
+      System Configuration
+    </Typography>
+    <Box sx={{ maxWidth: 600, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <TextField disabled label="HiveMQ Broker URL" defaultValue="mqtt://broker.hivemq.com:1883" fullWidth size="small" />
+      <TextField disabled label="Cloudinary Cloud Name" defaultValue="dh5f789pm" fullWidth size="small" />
+      <TextField disabled label="SMTP Alert Email" defaultValue="hotline-dev@capgemini.com" fullWidth size="small" />
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, border: '1px solid #e2e8f0', borderRadius: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#334155' }}>Enable Auto-Purge Database (30 Days)</Typography>
+        <Switch disabled defaultChecked color="primary" />
+      </Box>
+      <Button disabled variant="contained" sx={{ alignSelf: 'flex-start', mt: 2 }}>SAVE CONFIGURATION</Button>
+    </Box>
+  </Paper>
+);
 // ============================================================================
 // MASTER LAYOUT
 // ============================================================================
@@ -369,7 +472,7 @@ export default function App() {
     saturation: 100, 
     nightMode: false 
   });
-
+  const [activeNode, setActiveNode] = useState('NODE_A');
   if (!isAuthenticated) {
     return (
       <ThemeProvider theme={capgeminiTheme}>
@@ -407,7 +510,7 @@ export default function App() {
             <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
               <img src="/capgemini-logo.png" alt="Capgemini Engineering" style={{ height: '46px', objectFit: 'contain' }} />
               <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1.25rem', ml: 3, pl: 3, borderLeft: '1px solid #33557a' }}>
-                SCRIVE-ADAS
+                SMART CITY ADAS
               </Typography>
             </Box>
             
@@ -432,9 +535,11 @@ export default function App() {
           </Tabs>
         </Box>
 
-        {/* 🎯 THE FIX: PURE CSS GRID INSTEAD OF MUI <Grid> 🎯 */}
-        <Box sx={{ flex: 1, p: 3, overflow: 'hidden', width: '100%' }}>
-          {currentTab === 0 ? (
+{/* 🎯 THE FIX: PURE CSS GRID INSTEAD OF MUI <Grid> 🎯 */}
+<Box sx={{ flex: 1, p: 3, overflow: 'hidden', width: '100%' }}>
+          
+          {/* TAB 0: THE REAL DASHBOARD */}
+          {currentTab === 0 && (
             <Box sx={{ 
               display: 'grid', 
               gridTemplateColumns: '3fr 6fr 3fr', // Forces 25% | 50% | 25% distribution mathematically
@@ -445,12 +550,14 @@ export default function App() {
               
               {/* LEFT COLUMN */}
               <Box sx={{ height: '100%', minWidth: 0 }}>
-                <Configurator isSimMode={isSimulationMode} toggleSimMode={() => setIsSimulationMode(!isSimulationMode)} configState={config} setConfigState={setConfig} />
+                {/* 👇 Pass activeNode so Emergency buttons apply to the correct intersection */}
+                <Configurator isSimMode={isSimulationMode} toggleSimMode={() => setIsSimulationMode(!isSimulationMode)} configState={config} setConfigState={setConfig} activeNode={activeNode} />
               </Box>
 
               {/* MIDDLE COLUMN */}
               <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
-                <CameraView isSimMode={isSimulationMode} configState={config} />
+                {/* 👇 Pass activeNode and setActiveNode to the camera */}
+                <CameraView isSimMode={isSimulationMode} configState={config} activeNode={activeNode} setActiveNode={setActiveNode} />
                 <ScanLogsTable refreshRate={config.refreshRate} />
               </Box>
 
@@ -460,11 +567,17 @@ export default function App() {
               </Box>
 
             </Box>
-          ) : (
-            <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography variant="h5" color="textSecondary">This module is locked in the demo environment.</Typography>
-            </Box>
           )}
+
+          {/* TAB 1: MOCKED EDGE NODES */}
+          {currentTab === 1 && <EdgeNodesTab />}
+
+          {/* TAB 2: MOCKED REPORTS */}
+          {currentTab === 2 && <ReportsTab />}
+
+          {/* TAB 3: MOCKED SETTINGS */}
+          {currentTab === 3 && <SettingsTab />}
+
         </Box>
 
       </Box>
