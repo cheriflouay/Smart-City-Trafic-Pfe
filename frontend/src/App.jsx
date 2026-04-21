@@ -26,7 +26,9 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import StopIcon from '@mui/icons-material/Stop'; // 👈 NEW ICON IMPORT
-
+import FileUploadIcon from '@mui/icons-material/FileUpload';
+import StopIcon from '@mui/icons-material/Stop';
+import SpeedIcon from '@mui/icons-material/Speed'; // 👈 ADD THIS IMPORT
 // ============================================================================
 // 🎨 CAPGEMINI MUI DESIGN SYSTEM
 // ============================================================================
@@ -361,12 +363,13 @@ const ScanLogsTable = ({ refreshRate }) => {
 };
 
 // ============================================================================
-// 3. RIGHT COLUMN: Env Data, Export & Analytics
+// 3. RIGHT COLUMN: Env Data, Export & Analytics (UPGRADED)
 // ============================================================================
-const RightColumnPanel = ({ refreshRate }) => {
+const RightColumnPanel = ({ refreshRate, activeNode }) => { // 👈 ADDED activeNode PROP
   const [timeframe, setTimeframe] = useState('all');
   const [weatherData, setWeatherData] = useState("Fetching API...");
   const [totalViolations, setTotalViolations] = useState(0);
+  const [telemetry, setTelemetry] = useState({ fps: 0, inference_ms: 0, cpu: 0, ram: 0 }); // 👈 NEW STATE
 
   useEffect(() => {
     axios.get("https://api.open-meteo.com/v1/forecast?latitude=36.4561&longitude=10.7376&current_weather=true")
@@ -375,16 +378,20 @@ const RightColumnPanel = ({ refreshRate }) => {
   }, []);
 
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchStatsAndTelemetry = async () => {
       try {
-        const res = await axios.get('http://localhost:8000/api/stats');
-        setTotalViolations(res.data.total_violations);
+        const resStats = await axios.get('http://localhost:8000/api/stats');
+        setTotalViolations(resStats.data.total_violations);
+        
+        // 👇 NEW: Fetch Live Telemetry
+        const resTele = await axios.get(`http://localhost:8000/api/telemetry/${activeNode}`);
+        setTelemetry(resTele.data);
       } catch (e) { }
     };
-    fetchStats();
-    const interval = setInterval(fetchStats, refreshRate);
+    fetchStatsAndTelemetry();
+    const interval = setInterval(fetchStatsAndTelemetry, refreshRate);
     return () => clearInterval(interval);
-  }, [refreshRate]);
+  }, [refreshRate, activeNode]);
 
   const handleExport = async (format) => {
     try {
@@ -436,6 +443,33 @@ const RightColumnPanel = ({ refreshRate }) => {
         </Box>
         <Typography variant="h2" sx={{ fontWeight: 900, color: '#002b5c', my: 1 }}>{totalViolations}</Typography>
         <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700, letterSpacing: 1.5 }}>TOTAL VIOLATIONS</Typography>
+      </Paper>
+
+      {/* 👇 NEW: LIVE TELEMETRY DASHBOARD */}
+      <Paper sx={{ p: 3, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #002b5c', pb: 1.5, mb: 2 }}>
+          <Typography variant="subtitle1" color="primary">Live Telemetry</Typography>
+          <SpeedIcon color="secondary" />
+        </Box>
+        
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+          <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0', textAlign: 'center' }}>
+            <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700 }}>INFERENCE</Typography>
+            <Typography variant="h6" sx={{ color: '#0f172a' }}>{telemetry.inference_ms || 0} ms</Typography>
+          </Box>
+          <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0', textAlign: 'center' }}>
+            <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700 }}>PROCESSING</Typography>
+            <Typography variant="h6" sx={{ color: '#0f172a' }}>{telemetry.fps || 0} FPS</Typography>
+          </Box>
+          <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0', textAlign: 'center' }}>
+            <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700 }}>NODE CPU</Typography>
+            <Typography variant="h6" sx={{ color: telemetry.cpu > 80 ? '#d13239' : '#0f172a' }}>{telemetry.cpu || 0}%</Typography>
+          </Box>
+          <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0', textAlign: 'center' }}>
+            <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700 }}>NODE RAM</Typography>
+            <Typography variant="h6" sx={{ color: telemetry.ram > 80 ? '#d13239' : '#0f172a' }}>{telemetry.ram || 0}%</Typography>
+          </Box>
+        </Box>
       </Paper>
 
       <Paper sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -676,7 +710,7 @@ export default function App() {
 
             {/* RIGHT COLUMN */}
             <Box>
-              <RightColumnPanel refreshRate={config.refreshRate} />
+              <RightColumnPanel refreshRate={config.refreshRate} activeNode={activeNode} />
             </Box>
 
           </Box>

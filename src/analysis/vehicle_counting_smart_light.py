@@ -212,6 +212,7 @@ def main():
         
     # Cache for bounding boxes during skipped frames
     cached_tracks = []
+    inf_time_ms = 0.0 # 👈 NEW: Initialize inference time tracker
 
     logger.info(f"✅ Edge Node {NODE_ID} Started Successfully")
 
@@ -250,14 +251,16 @@ def main():
         display_fps = 1 / time_diff if time_diff > 0 else 0
         prev_sys_time = current_sys_time
 
-        # Send MQTT Health Heartbeat
-        if current_sys_time - last_heartbeat_time > 5.0:
+        # 👇 UPDATED: Send MQTT Health Heartbeat every 2.0 seconds
+        if current_sys_time - last_heartbeat_time > 2.0:
             payload = {
                 "node_id": NODE_ID,
                 "status": "ONLINE",
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "cpu": psutil.cpu_percent(),
-                "ram": psutil.virtual_memory().percent
+                "ram": psutil.virtual_memory().percent,
+                "fps": round(display_fps, 1),           # 👈 Added FPS
+                "inference_ms": round(inf_time_ms, 1)   # 👈 Added Inference Time
             }
             mqtt_client.publish(f"smartcity/node/{NODE_ID}/heartbeat", json.dumps(payload))
             last_heartbeat_time = current_sys_time
@@ -267,9 +270,11 @@ def main():
         # ========================================================
         if frame_counter % 3 == 0:
             # ---------------- DETECTION & TRACKING ----------------
-            # 👇 DYNAMIC INFERENCE: conf is tied directly to ai_confidence!
+            inf_start = time.time() # 👈 NEW: Start stopwatch
             results = model.track(frame, persist=True, tracker=config["ai"]["tracker_type"], 
                                   verbose=False, conf=ai_confidence)
+            inf_time_ms = (time.time() - inf_start) * 1000 # 👈 NEW: Calculate Inference Time in ms!
+            
             tracks = []
             
             if results[0].boxes is not None and results[0].boxes.id is not None:
@@ -459,7 +464,6 @@ def main():
         # Only draw the Stop Line (Red Light trigger line)
         cv2.line(frame, (0, config["speed_estimation"]["line_2_y"]), (frame.shape[1], config["speed_estimation"]["line_2_y"]), (0, 0, 255), 3)
         
-        # 👇 UPDATED: Show FPS and Live Confidence on screen
         cv2.putText(frame, f"FPS: {int(display_fps)} | Conf: {ai_confidence:.2f}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
         cv2.putText(frame, f"Active Node: {NODE_ID}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 100, 100), 2)
 
