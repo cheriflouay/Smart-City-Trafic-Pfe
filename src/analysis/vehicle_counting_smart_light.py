@@ -9,22 +9,24 @@ import warnings
 import argparse
 import psutil
 import json
+import math 
 from datetime import datetime
 from ultralytics import YOLO
 import paho.mqtt.client as mqtt
 
 # 👇 THE FIX: Force the system into Enterprise Headless Mode. 
-# This disables local pop-ups and pipes the video directly to the React Web Dashboard.
 os.environ["HEADLESS_MODE"] = "1"
 
 # Ignore scikit-learn warnings about feature names
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # -------------------------------------------------
-# 🎛️ ARGUMENT PARSING (DISTRIBUTED NODE ID)
+# 🎛️ ARGUMENT PARSING (DYNAMIC BENCHMARKING)
 # -------------------------------------------------
 parser = argparse.ArgumentParser(description="Capgemini Distributed Edge Node")
-parser.add_argument("--node", type=str, default="NODE_A", help="Unique ID for this Edge Node (e.g., NODE_A)")
+parser.add_argument("--node", type=str, default="NODE_A", help="Unique ID for this Edge Node")
+parser.add_argument("--video", type=str, default=None, help="Path to user uploaded video file")
+parser.add_argument("--model", type=str, default=None, help="Path to chosen YOLO model")
 args = parser.parse_args()
 NODE_ID = args.node
 
@@ -33,7 +35,6 @@ NODE_ID = args.node
 # -------------------------------------------------
 from src.database.db import init_db, get_connection
 from src.utils.logger import setup_logger
-from src.analysis.speed_estimation import SpeedEstimator
 from src.decision.fine_calculator import FineCalculator
 from src.decision.emergency_logic import EmergencyOverride
 from src.utils.ocr_worker import OCRBackgroundWorker
@@ -52,12 +53,20 @@ logger = setup_logger(f"EdgeWorker_{NODE_ID}")
 # -------------------------------------------------
 os.makedirs("violations", exist_ok=True)
 
+# 🚀 MLOPS: Create retraining folder if enabled
+mlops_cfg = config.get("mlops_active_learning", {})
+if mlops_cfg.get("enabled", False):
+    os.makedirs(mlops_cfg.get("save_path", "data/needs_retraining"), exist_ok=True)
+
 logger.info(f"🚀 Booting Edge Vision Worker for {NODE_ID}...")
-logger.info("🧠 Loading YOLO Model...")
-model = YOLO(config["system"]["model_path"])
+
+# Dynamic Model Loading
+MODEL_PATH = args.model if args.model else config["system"]["model_path"]
+logger.info(f"🧠 Loading YOLO Model: {MODEL_PATH}")
+model = YOLO(MODEL_PATH)
 
 # Make the node "ONNX-Aware" to prevent the .fuse() crash!
-if config["system"]["model_path"].endswith(".pt"):
+if MODEL_PATH.endswith(".pt"):
     model.fuse()
     logger.info("⚙️ PyTorch Model Fused.")
 else:
@@ -66,14 +75,15 @@ else:
 logger.info("🗄 Checking distributed database...")
 init_db()
 
-# 🚨 NEW: Global flags for Dashboard Emergency Control
+# 🚨 Global flags for Dashboard Emergency Control
 emergency_force_green = False
 emergency_end_time = 0
-restart_requested = False  # 👈 NEW: Flag for restarting the video
+restart_requested = False  
+ai_confidence = 0.15 # 👈 NEW: Default AI Confidence Tracker
 
 # The DevOps Suicide Switch & Emergency Listener
 def on_command_message(client, userdata, msg):
-    global emergency_force_green, emergency_end_time, restart_requested
+    global emergency_force_green, emergency_end_time, restart_requested, ai_confidence
     try:
         payload = json.loads(msg.payload.decode())
         action = payload.get("action")
@@ -84,11 +94,13 @@ def on_command_message(client, userdata, msg):
         elif action == "FORCE_GREEN":
             logger.warning(f"🚨 EMERGENCY: Dashboard forced green light for {NODE_ID}")
             emergency_force_green = True
-            # Stay green for requested duration or default to 15 seconds
             emergency_end_time = time.time() + payload.get("duration", 15)
         elif action == "RESTART_VIDEO":
             logger.warning(f"🔄 Dashboard requested video restart for {NODE_ID}")
             restart_requested = True
+        elif action == "SET_CONFIDENCE": # 👈 NEW: Listen for UI Slider changes!
+            ai_confidence = float(payload.get("value", 0.15))
+            logger.info(f"🎛️ AI Confidence dynamically updated to {ai_confidence}")
             
     except Exception as e:
         pass
@@ -116,6 +128,23 @@ except Exception as e:
     logger.error(f"Failed to load ML model: {e}")
 
 # -------------------------------------------------
+# 🦅 BIRD'S-EYE VIEW (BEV) MATH CALCULATION
+# -------------------------------------------------
+def setup_bev_matrix(cfg):
+    try:
+        src = np.float32(cfg["bev_homography"]["src_points"])
+        dst = np.float32(cfg["bev_homography"]["dst_points"])
+        return cv2.getPerspectiveTransform(src, dst)
+    except:
+        return None
+
+def get_real_world_distance(p1, p2, matrix, ppm):
+    if matrix is None: return 999.0
+    pts = np.array([[p1, p2]], dtype=np.float32)
+    warped = cv2.perspectiveTransform(pts, matrix)[0]
+    return math.dist(warped[0], warped[1]) / ppm
+
+# -------------------------------------------------
 # HELPER FUNCTIONS
 # -------------------------------------------------
 def draw_traffic_light(frame, state):
@@ -140,20 +169,24 @@ def draw_traffic_light(frame, state):
 # MAIN FUNCTION
 # -------------------------------------------------
 def main():
-    global emergency_force_green, emergency_end_time, restart_requested
+    global emergency_force_green, emergency_end_time, restart_requested, ai_confidence
     
-    speed_estimator = SpeedEstimator(
-        line_1_y=config["speed_estimation"]["line_1_y"],
-        line_2_y=config["speed_estimation"]["line_2_y"],
-        distance_meters=config["speed_estimation"]["distance_meters"]
-    )
     fine_calculator = FineCalculator()
     emergency_override = EmergencyOverride()
     incident_detector = IncidentDetector(stop_threshold_sec=5.0)
 
-    cap = cv2.VideoCapture(config["system"]["video_path"])
+    # SETUP ADVANCED ENTERPRISE FEATURES
+    bev_matrix = setup_bev_matrix(config)
+    ppm = config.get("bev_homography", {}).get("pixels_per_meter", 25.0)
+    tailgate_dist = config.get("bev_homography", {}).get("tailgating_threshold_meters", 2.5)
+
+    # Dynamic Video Path Loading
+    VIDEO_PATH = args.video if args.video else config["system"]["video_path"]
+    logger.info(f"📹 Loading Video: {VIDEO_PATH}")
+    
+    cap = cv2.VideoCapture(VIDEO_PATH)
     if not cap.isOpened():
-        logger.error("❌ Could not open video.")
+        logger.error(f"❌ Could not open video: {VIDEO_PATH}")
         return
 
     video_native_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -180,7 +213,7 @@ def main():
     # Cache for bounding boxes during skipped frames
     cached_tracks = []
 
-    logger.info(f"✅ Edge Node {NODE_ID} Started Successfully (Web Mode)")
+    logger.info(f"✅ Edge Node {NODE_ID} Started Successfully")
 
     while True:
         # 👇 1. Check if the dashboard clicked the RESTART button
@@ -189,8 +222,6 @@ def main():
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             counted_ids.clear() 
             track_history.clear()
-            speed_estimator.entry_times.clear()
-            speed_estimator.speeds.clear()
             frame_counter = 0
             restart_requested = False
 
@@ -236,29 +267,54 @@ def main():
         # ========================================================
         if frame_counter % 3 == 0:
             # ---------------- DETECTION & TRACKING ----------------
+            # 👇 DYNAMIC INFERENCE: conf is tied directly to ai_confidence!
             results = model.track(frame, persist=True, tracker=config["ai"]["tracker_type"], 
-                                  imgsz=480, verbose=False, conf=0.25, classes=config["ai"]["vehicle_classes"])
+                                  verbose=False, conf=ai_confidence)
             tracks = []
+            
             if results[0].boxes is not None and results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy()
                 track_ids = results[0].boxes.id.int().cpu().numpy()
+                classes = results[0].boxes.cls.int().cpu().numpy()
+                confs = results[0].boxes.conf.cpu().numpy()
                 
-                for box, track_id in zip(boxes, track_ids):
+                for box, track_id, cls, conf in zip(boxes, track_ids, classes, confs):
                     x1, y1, x2, y2 = map(int, box)
-                    tracks.append([x1, y1, x2, y2, track_id])
+                    cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+
+                    # MLOps Active Learning
+                    if mlops_cfg.get("enabled", False) and mlops_cfg["min_conf"] <= conf <= mlops_cfg["max_conf"]:
+                        img_name = f"{mlops_cfg.get('save_path')}/retrain_{NODE_ID}_{cls}_{int(time.time())}.jpg"
+                        y1_c, y2_c = max(0, y1), min(frame.shape[0], y2)
+                        x1_c, x2_c = max(0, x1), min(frame.shape[1], x2)
+                        if frame[y1_c:y2_c, x1_c:x2_c].size > 0:
+                            cv2.imwrite(img_name, frame[y1_c:y2_c, x1_c:x2_c])
+
+                    # Only track vehicles for intersection logic
+                    if cls in config["ai"]["vehicle_classes"]:
+                        tracks.append([x1, y1, x2, y2, track_id, cx, cy])
                     
-            cached_tracks = tracks # Save boxes for the next skipped frame
+            cached_tracks = tracks 
+
+            # BEV Tailgating Detection
+            if bev_matrix is not None:
+                for i in range(len(tracks)):
+                    for j in range(i + 1, len(tracks)):
+                        id1, cx1, cy1 = tracks[i][4], tracks[i][5], tracks[i][6]
+                        id2, cx2, cy2 = tracks[j][4], tracks[j][5], tracks[j][6]
+                        
+                        dist_meters = get_real_world_distance((cx1, cy1), (cx2, cy2), bev_matrix, ppm)
+                        
+                        if dist_meters < tailgate_dist and abs(cx1 - cx2) < 100:
+                            cv2.line(frame, (cx1, cy1), (cx2, cy2), (0, 165, 255), 2)
+                            cv2.putText(frame, f"TAILGATING ({dist_meters:.1f}m)", (int((cx1+cx2)/2), int((cy1+cy2)/2)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
 
             # ---------------- PROCESS TRACKS ----------------
             for track in tracks:
-                x1, y1, x2, y2, track_id = map(int, track)
-                cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+                x1, y1, x2, y2, track_id, cx, cy = map(int, track)
 
-                veh_speed = speed_estimator.get_speed(track_id)
-                
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                label = f"ID: {track_id}" if veh_speed is None else f"ID: {track_id} | {veh_speed}km/h"
-                cv2.putText(frame, label, (x1, max(0, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                cv2.putText(frame, f"ID: {track_id}", (x1, max(0, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                 cv2.circle(frame, (cx, cy), 4, (255, 0, 0), -1)
 
                 incident_type = incident_detector.update_and_detect(track_id, cx, cy, video_time)
@@ -284,30 +340,20 @@ def main():
                     
                     incident_detector.history.pop(track_id, None)
 
-                # ---------------- CROSSING & VIOLATION LOGIC ----------------
+                # ---------------- RED LIGHT VIOLATION LOGIC ----------------
                 if track_id in track_history:
                     prev_cy = track_history[track_id]
-                    calculated_speed = speed_estimator.update(track_id, prev_cy, cy, video_time)
                     
-                    line_2 = config["speed_estimation"]["line_2_y"]
-                    if (prev_cy <= line_2 and cy > line_2) or (prev_cy >= line_2 and cy < line_2):
+                    # We use line_2_y as the Stop Line for the intersection
+                    stop_line = config["speed_estimation"]["line_2_y"]
+                    if (prev_cy <= stop_line and cy > stop_line) or (prev_cy >= stop_line and cy < stop_line):
                         if track_id not in counted_ids:
                             
                             is_red_light = (light_state == "RED")
-                            is_speeding = False
 
-                            if veh_speed is not None and veh_speed > config["speed_estimation"]["speed_limit_kmh"]:
-                                is_speeding = True
-
-                            if is_red_light or is_speeding:
-                                if is_red_light and is_speeding:
-                                    v_type = "BOTH"
-                                elif is_red_light:
-                                    v_type = "RED_LIGHT"
-                                else:
-                                    v_type = "SPEED"
-
-                                calculated_fine = fine_calculator.calculate_fine(v_type, veh_speed)
+                            if is_red_light:
+                                v_type = "RED_LIGHT"
+                                calculated_fine = fine_calculator.calculate_fine(v_type, 0)
                                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                                 y1_crop, y2_crop = max(0, y1), min(frame.shape[0], y2)
@@ -320,7 +366,7 @@ def main():
                                     ocr_worker.process_violation(
                                         node_id=NODE_ID, image_path=filename, track_id=track_id,
                                         timestamp=timestamp, light_state=light_state, v_type=v_type,
-                                        veh_speed=veh_speed, fine_amount=calculated_fine
+                                        veh_speed=0.0, fine_amount=calculated_fine
                                     )
 
                             vehicle_count += 1
@@ -332,20 +378,16 @@ def main():
         else:
             # 💨 SKIPPED FRAME: Just draw the cached tracks to keep the video smooth without AI math!
             for track in cached_tracks:
-                x1, y1, x2, y2, track_id = map(int, track)
-                veh_speed = speed_estimator.get_speed(track_id)
+                x1, y1, x2, y2, track_id, cx, cy = map(int, track)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                label = f"ID: {track_id}" if veh_speed is None else f"ID: {track_id} | {veh_speed}km/h"
-                cv2.putText(frame, label, (x1, max(0, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
+                cv2.putText(frame, f"ID: {track_id}", (x1, max(0, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         # ---------------- CONGESTION ANALYTICS ----------------
-        current_speeds = list(speed_estimator.speeds.values())
-        avg_speed_now = sum(current_speeds) / len(current_speeds) if current_speeds else 0.0
+        avg_speed_now = 0.0 # Speed logic removed, defaulting to 0 for DB compatibility
         
         if frame_counter % int(video_native_fps * 3) == 0:
             c_level = "LOW"
-            if vehicle_count > 25 or avg_speed_now < 15: c_level = "CRITICAL"
+            if vehicle_count > 25: c_level = "CRITICAL"
             elif vehicle_count > 15: c_level = "HIGH"
             elif vehicle_count > 8: c_level = "MEDIUM"
             
@@ -366,18 +408,26 @@ def main():
                 ai_prediction = ml_model.predict(features)[0]
             except: pass
 
-        # ---------------- SMART LIGHT LOGIC WITH IOT & AI OVERRIDE ----------------
+        # ---------------- SMART LIGHT LOGIC WITH IOT OVERRIDE ----------------
         elapsed = current_sys_time - last_switch_time
 
-        # 🚨 UPDATED: Checks for physical V2I overrides OR the Dashboard manual override
-        if emergency_override.check_override() or (emergency_force_green and current_sys_time < emergency_end_time):
+        if emergency_override.check_override():
+            if light_state != "RED":
+                light_state = "RED"
+                last_switch_time = current_sys_time
+                mqtt_client.publish(config["mqtt"]["topic_light"], f"RED_OVERRIDE_{NODE_ID}")
+            
+            video_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            cv2.putText(frame, "🚨 EMERGENCY OVERRIDE ACTIVE 🚨", (video_w//2 - 300, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+
+        elif emergency_force_green and current_sys_time < emergency_end_time:
             if light_state != "GREEN":
                 light_state = "GREEN"
                 last_switch_time = current_sys_time
                 mqtt_client.publish(config["mqtt"]["topic_light"], f"GREEN_EMERGENCY_OVERRIDE_{NODE_ID}")
             
             video_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            cv2.putText(frame, "🚨 EMERGENCY OVERRIDE ACTIVE 🚨", (video_w//2 - 250, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+            cv2.putText(frame, "🚨 EMERGENCY OVERRIDE ACTIVE 🚨", (video_w//2 - 250, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
         else:
             emergency_force_green = False # Reset the flag once time expires
             
@@ -405,10 +455,12 @@ def main():
                     mqtt_client.publish(config["mqtt"]["topic_light"], f"GREEN_{NODE_ID}")
 
         # ---------------- DISPLAY & RENDER (CLEAN FEED) ----------------
-        cv2.line(frame, (0, config["speed_estimation"]["line_1_y"]), (frame.shape[1], config["speed_estimation"]["line_1_y"]), (255, 0, 0), 2)
+        
+        # Only draw the Stop Line (Red Light trigger line)
         cv2.line(frame, (0, config["speed_estimation"]["line_2_y"]), (frame.shape[1], config["speed_estimation"]["line_2_y"]), (0, 0, 255), 3)
         
-        cv2.putText(frame, f"FPS: {int(display_fps)}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+        # 👇 UPDATED: Show FPS and Live Confidence on screen
+        cv2.putText(frame, f"FPS: {int(display_fps)} | Conf: {ai_confidence:.2f}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
         cv2.putText(frame, f"Active Node: {NODE_ID}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 100, 100), 2)
 
         # Draw the lights directly onto the full-quality frame

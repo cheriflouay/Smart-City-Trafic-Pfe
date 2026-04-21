@@ -1,5 +1,5 @@
 # src/api/main.py
-from fastapi import FastAPI, HTTPException, Query, Body
+from fastapi import FastAPI, HTTPException, Query, Body, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles 
@@ -9,6 +9,11 @@ import os
 import time
 import json
 import random
+import cv2
+import subprocess
+import sys
+import psutil 
+import numpy as np # 👈 Added for generating the standby frame
 from datetime import datetime, timedelta
 from typing import Optional
 import paho.mqtt.client as mqtt
@@ -119,7 +124,102 @@ def startup_event():
     conn.close()
 
 # ---------------------------------------------------------
-# 📹 HIGH-PERFORMANCE VIDEO STREAMING (MOCKED JURY DEMO)
+# 🎛️ DYNAMIC SIMULATION & MODEL BENCHMARKING (NEW)
+# ---------------------------------------------------------
+@app.post("/api/upload_video")
+async def upload_video(file: UploadFile = File(...)):
+    """Handles user video uploads for dynamic simulation."""
+    
+    # 🚨 FIX 1: Stop the old simulation first so Windows unlocks the video file!
+    await stop_simulation()
+    time.sleep(0.5) # Give Windows half a second to completely release the file lock
+    
+    os.makedirs("data/videos", exist_ok=True)
+    
+    # 🚨 FIX 2: Add a unique timestamp to the filename to prevent Overwrite Crashes
+    timestamp = int(time.time())
+    file_path = f"data/videos/{timestamp}_{file.filename}"
+    
+    with open(file_path, "wb") as buffer:
+        buffer.write(await file.read())
+        
+    return {"status": "SUCCESS", "video_path": file_path, "filename": file.filename}
+# Global process tracker
+current_ai_process = None
+
+@app.post("/api/stop_simulation")
+async def stop_simulation():
+    """Cleanly terminates the AI process and handles UI reset."""
+    global current_ai_process
+    
+    if current_ai_process is not None:
+        try:
+            current_ai_process.terminate()
+        except: pass
+        current_ai_process = None
+
+    # 🚨 BULLETPROOF GHOST KILLER
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmdline = proc.info.get('cmdline')
+            if cmdline:
+                cmd_str = " ".join(str(item) for item in cmdline if item)
+                if 'vehicle_counting_smart_light' in cmd_str:
+                    proc.kill()
+                    print(f"🛑 Cleaned up ghost AI process (PID: {proc.info['pid']})")
+        except Exception: 
+            # Catch-all prevents crashing when changing models!
+            pass 
+
+    # Write a black standby frame so the frontend knows it stopped
+    try:
+        standby = np.zeros((768, 1366, 3), dtype=np.uint8)
+        cv2.putText(standby, "SIMULATION STOPPED", (350, 384), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,255), 3)
+        cv2.imwrite("latest_frame_NODE_A.jpg", standby)
+    except: pass
+
+    return {"status": "SUCCESS", "message": "Simulation halted."}
+
+@app.post("/api/run_simulation")
+async def run_simulation(
+    video_path: str = Form(...), 
+    model_choice: str = Form(...),
+    node_id: str = Form("NODE_A")
+):
+    global current_ai_process
+    
+    # 🚨 Force clean slate before starting a new model/video
+    await stop_simulation()
+    
+    # Map user-friendly dropdown names to actual model files
+    model_map = {
+        "YOLOv8_Nano": "models/yolov8n.onnx",
+        "YOLOv8_Small": "models/yolov8s.onnx",
+        "YOLOv8_Custom": "models/best.pt"
+    }
+    selected_model = model_map.get(model_choice, "models/yolov8n.onnx")
+
+    # Construct the command to launch your AI script
+    cmd = [
+        sys.executable, "-m", "src.analysis.vehicle_counting_smart_light", 
+        "--node", node_id,
+        "--video", video_path,
+        "--model", selected_model
+    ]
+    
+    # Start the new process and save its reference
+    current_ai_process = subprocess.Popen(cmd)
+    print(f"🚀 Started NEW AI Simulation for {node_id} using {selected_model}")
+    
+    return {
+        "status": "SUCCESS", 
+        "message": f"Simulation started on {node_id}",
+        "video_used": video_path,
+        "model_used": selected_model
+    }
+
+# ---------------------------------------------------------
+# 📹 HIGH-PERFORMANCE VIDEO STREAMING
 # ---------------------------------------------------------
 def frame_generator(node_id: str):
     # 🟢 1. LIVE AI NODE (Node A) - Reads the real YOLO output
@@ -138,13 +238,11 @@ def frame_generator(node_id: str):
 
     # 🔵 2. MOCKED JURY NODES (Node B & C) - Loops MP4 files directly (No AI)
     else:
-        # Look for the videos in the correct data/videos/ folder
         if node_id == "NODE_B":
             video_source = "data/videos/traffic1.mp4"
         else:
             video_source = "data/videos/traffic2.mp4"
         
-        # Fallback to the original video just in case they are missing
         if not os.path.exists(video_source):
             video_source = "data/videos/traffic.mp4" 
 
@@ -165,7 +263,7 @@ def frame_generator(node_id: str):
             
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            time.sleep(0.03) # Limit framerate so it streams smoothly
+            time.sleep(0.03)
 
 @app.get("/api/video_feed/{node_id}")
 def video_feed(node_id: str):
@@ -175,7 +273,7 @@ def video_feed(node_id: str):
     )
 
 # ---------------------------------------------------------
-# 🚨 EMERGENCY RESPONSE API
+# 🚨 EMERGENCY RESPONSE & DYNAMIC CONTROL API
 # ---------------------------------------------------------
 @app.post("/api/command")
 async def send_emergency_command(payload: dict = Body(...)):
@@ -186,16 +284,21 @@ async def send_emergency_command(payload: dict = Body(...)):
         command = json.dumps({"action": "FORCE_GREEN", "duration": 15, "priority": "CRITICAL"})
         mqtt_client.publish(f"smartcity/node/{node_id}/command", command)
         print(f"🚨 EMERGENCY: Force Green issued for {node_id}")
-        return {"status": "SUCCESS", "message": f"Emergency Green signal sent to {node_id}"}
+        return {"status": "SUCCESS"}
         
     elif action == "RESTART_VIDEO":
         command = json.dumps({"action": "RESTART_VIDEO", "priority": "NORMAL"})
         mqtt_client.publish(f"smartcity/node/{node_id}/command", command)
-        print(f"🔄 COMMAND: Restart video issued for {node_id}")
-        return {"status": "SUCCESS", "message": f"Restart command sent to {node_id}"}
+        return {"status": "SUCCESS"}
+        
+    # 👇 NEW: Route the Live Confidence Slider value to the AI
+    elif action == "SET_CONFIDENCE":
+        val = payload.get("value", 0.15)
+        command = json.dumps({"action": "SET_CONFIDENCE", "value": val})
+        mqtt_client.publish(f"smartcity/node/{node_id}/command", command)
+        return {"status": "SUCCESS"}
     
     raise HTTPException(status_code=400, detail="Invalid command.")
-
 # ---------------------------------------------------------
 # 📊 ANALYTICS & MONITORING
 # ---------------------------------------------------------
@@ -211,25 +314,19 @@ def get_dashboard_stats():
     except Exception as e:
         return JSONResponse(content={"total_violations": 0, "error": str(e)})
 
-# ---------------------------------------------------------
-# 📊 ANALYTICS & MONITORING (WITH TIMEFRAME FILTERS)
-# ---------------------------------------------------------
 @app.get("/api/violations")
 def get_recent_violations(limit: int = 100, node_id: Optional[str] = None, timeframe: Optional[str] = "all"):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Start building the SQL query dynamically
         query = "SELECT * FROM violations WHERE 1=1"
         params = []
         
-        # 1. Filter by Node
         if node_id and node_id != "ALL":
             query += " AND node_id=?"
             params.append(node_id)
             
-        # 2. Filter by Timeframe (Daily, Weekly, Monthly)
         if timeframe == "daily":
             query += " AND timestamp >= datetime('now', '-1 day')"
         elif timeframe == "weekly":
@@ -237,7 +334,6 @@ def get_recent_violations(limit: int = 100, node_id: Optional[str] = None, timef
         elif timeframe == "monthly":
             query += " AND timestamp >= datetime('now', '-30 days')"
             
-        # Finish the query with limits
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
         
@@ -271,7 +367,7 @@ def get_ai_forecast(node_id: Optional[str] = None):
     conn.close()
     
     if row:
-        v_count, row["vehicle_count"]
+        v_count = row["vehicle_count"]
         a_speed = row["avg_speed"]
         now = datetime.now()
         try:
@@ -289,7 +385,7 @@ def get_ai_forecast(node_id: Optional[str] = None):
     return {"forecast": "UNKNOWN", "status": "Insufficient data."}
 
 # ---------------------------------------------------------
-# 📄 LEGACY EXPORT ENDPOINTS (Retained for backward compatibility)
+# 📄 LEGACY EXPORT ENDPOINTS
 # ---------------------------------------------------------
 @app.get("/api/export/excel")
 def export_excel(timeframe: str = "daily"):

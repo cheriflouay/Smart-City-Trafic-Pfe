@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// frontend/src/App.jsx
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -22,6 +23,9 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import PersonIcon from '@mui/icons-material/Person';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
+import StopIcon from '@mui/icons-material/Stop'; // 👈 NEW ICON IMPORT
 
 // ============================================================================
 // 🎨 CAPGEMINI MUI DESIGN SYSTEM
@@ -94,66 +98,184 @@ const LoginScreen = ({ onLogin }) => {
 };
 
 // ============================================================================
-// 1. LEFT COLUMN: Configurator
+// 1. LEFT COLUMN: Unified Configurator (Upload + Visuals + Emergency)
 // ============================================================================
-const Configurator = ({ isSimMode, toggleSimMode, configState, setConfigState }) => {
+// Replace this component inside frontend/src/App.jsx
+const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, activeNode }) => {
+  const [file, setFile] = useState(null);
+  const [modelChoice, setModelChoice] = useState('YOLOv8_Nano');
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [confidence, setConfidence] = useState(0.15); // 👈 NEW STATE
+  const fileInputRef = useRef();
+
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+      setUploadStatus('');
+    }
+  };
+
+  const handleStartSimulation = async () => {
+    if (!file) {
+      alert("Please upload a video file first.");
+      return;
+    }
+    try {
+      setUploadStatus('Uploading video...');
+      const uploadData = new FormData();
+      uploadData.append('file', file);
+      const uploadRes = await axios.post('http://localhost:8000/api/upload_video', uploadData);
+      
+      const serverVideoPath = uploadRes.data.video_path;
+
+      setUploadStatus('Initializing AI Engine...');
+      const simData = new FormData();
+      simData.append('video_path', serverVideoPath);
+      simData.append('model_choice', modelChoice);
+      simData.append('node_id', activeNode);
+      
+      await axios.post('http://localhost:8000/api/run_simulation', simData);
+      
+      setUploadStatus('Simulation Running!');
+      setIsSimMode(true); 
+      setTimeout(() => setUploadStatus(''), 5000);
+    } catch (error) {
+      setUploadStatus('Error starting simulation.');
+      alert("Failed to start simulation. Check backend console.");
+    }
+  };
+
+  const handleStopSimulation = async () => {
+    try {
+      setUploadStatus('Stopping simulation...');
+      await axios.post('http://localhost:8000/api/stop_simulation');
+      setIsSimMode(false); 
+      setUploadStatus('Simulation Stopped.');
+      setTimeout(() => setUploadStatus(''), 3000);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const forceGreen = async () => {
     try {
-      await axios.post('http://localhost:8000/api/command', { action: "FORCE_GREEN", node_id: "NODE_A" });
-      alert("EMERGENCY SIGNAL BROADCASTED: Node A Forced to GREEN for 15s.");
+      await axios.post('http://localhost:8000/api/command', { action: "FORCE_GREEN", node_id: activeNode });
+      alert(`EMERGENCY SIGNAL BROADCASTED: ${activeNode} Forced to GREEN for 15s.`);
     } catch (e) { alert("Connection Error: Backend Command API Offline."); }
   };
 
   const restartVideo = async () => {
     try {
-      await axios.post('http://localhost:8000/api/command', { action: "RESTART_VIDEO", node_id: "NODE_A" });
+      await axios.post('http://localhost:8000/api/command', { action: "RESTART_VIDEO", node_id: activeNode });
     } catch (e) { alert("Connection Error."); }
   };
 
-  return (
-    <Paper sx={{ p: 3, height: '100%', gap: 3 }}>
-      <Typography variant="subtitle1" color="primary" sx={{ borderBottom: '2px solid #002b5c', pb: 1.5 }}>
-        Configurator
-      </Typography>
+  // 👇 NEW: Handles sending the confidence payload to the backend
+  const handleConfidenceSubmit = async (event, newValue) => {
+    try {
+      await axios.post('http://localhost:8000/api/command', {
+        action: "SET_CONFIDENCE",
+        node_id: activeNode,
+        value: newValue
+      });
+    } catch (e) {
+      console.error("Failed to update confidence");
+    }
+  };
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, bgcolor: '#f8fafc', p: 2, borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="body2" fontWeight="bold" color="#334155">Simulation Mode</Typography>
-          <Switch checked={isSimMode} onChange={toggleSimMode} color="secondary" />
+  return (
+    <Paper sx={{ p: 3, gap: 2.5 }}>
+      
+      <Typography variant="subtitle1" color="primary" sx={{ borderBottom: '2px solid #002b5c', pb: 1 }}>
+        Model Benchmarking
+      </Typography>
+      
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
+          <Typography variant="caption" color="textSecondary" fontWeight="bold">VIDEO SOURCE</Typography>
+          <input type="file" accept="video/mp4,video/x-m4v,video/*" style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileChange} />
+          <Button variant="outlined" fullWidth startIcon={<FileUploadIcon />} onClick={() => fileInputRef.current.click()} sx={{ mt: 1, justifyContent: 'flex-start', color: '#475569', borderColor: '#cbd5e1' }}>
+            {file ? file.name : "Select Video (.mp4)"}
+          </Button>
         </Box>
-        <Divider />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+
+        <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
+          <Typography variant="caption" color="textSecondary" fontWeight="bold" sx={{ display: 'block', mb: 1 }}>AI MODEL</Typography>
+          <FormControl fullWidth size="small">
+            <Select value={modelChoice} onChange={(e) => setModelChoice(e.target.value)} sx={{ bgcolor: 'white' }}>
+              <MenuItem value="YOLOv8_Nano">YOLOv8 Nano (Highest FPS)</MenuItem>
+              <MenuItem value="YOLOv8_Small">YOLOv8 Small (Balanced)</MenuItem>
+              <MenuItem value="YOLOv8_Custom">Custom PFE Model (High Accuracy)</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+
+        {/* 👇 NEW: The Interactive Slider Box */}
+        <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0', mt: 0.5 }}>
+          <Typography variant="caption" color="textSecondary" fontWeight="bold" sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>LIVE AI CONFIDENCE</span>
+            <span style={{ color: '#00a0d1' }}>{(confidence * 100).toFixed(0)}%</span>
+          </Typography>
+          <Slider
+            value={confidence}
+            min={0.05}
+            max={0.95}
+            step={0.05}
+            onChange={(e, val) => setConfidence(val)} // Updates UI instantly
+            onChangeCommitted={handleConfidenceSubmit} // Sends API request only on mouse release
+            color="secondary"
+          />
+          <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block', mt: 0.5 }}>
+            Lower: Dets background noise. Higher: Stricter rules.
+          </Typography>
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="contained" color="secondary" startIcon={<PlayArrowIcon />} onClick={handleStartSimulation} fullWidth sx={{ py: 1.5 }}>
+            LAUNCH
+          </Button>
+          <Button variant="outlined" color="error" startIcon={<StopIcon />} onClick={handleStopSimulation} sx={{ minWidth: '100px' }}>
+            STOP
+          </Button>
+        </Box>
+        
+        {uploadStatus && <Typography variant="body2" sx={{ color: '#16a34a', fontWeight: 'bold', textAlign: 'center' }}>{uploadStatus}</Typography>}
+      </Box>
+
+      {/* VISUAL CONFIGURATOR SECTION */}
+      <Typography variant="subtitle1" color="primary" sx={{ borderBottom: '2px solid #002b5c', pb: 1, mt: 1 }}>
+        Visual Configurator
+      </Typography>
+      
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <DarkModeIcon sx={{ fontSize: 16, color: '#64748b' }} />
-            <Typography variant="body2" fontWeight="bold" color="#334155">Night Mode</Typography>
+            <Typography variant="body2" fontWeight="bold" color="#334155">Night Mode (UI Filter)</Typography>
           </Box>
           <Switch checked={configState.nightMode} onChange={(e) => setConfigState({...configState, nightMode: e.target.checked})} color="primary" />
         </Box>
-      </Box>
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Button variant="contained" color="error" startIcon={<WarningIcon />} onClick={forceGreen} fullWidth sx={{ py: 1.5 }}>FORCE EMERGENCY GREEN</Button>
-        <Button variant="outlined" color="primary" startIcon={<RestartAltIcon />} onClick={restartVideo} fullWidth sx={{ py: 1.5 }}>RESTART SIMULATION</Button>
-      </Box>
-
-      <Box sx={{ flex: 1, mt: 1, px: 1, overflowY: 'auto' }}>
-        <Typography variant="caption" color="textSecondary" fontWeight="bold">POLLING RATE (MS)</Typography>
-        <Slider value={configState.refreshRate} min={100} max={5000} step={100} onChange={(e, val) => setConfigState({...configState, refreshRate: val})} color="secondary" valueLabelDisplay="auto" />
-        
-        <Box sx={{ mt: 1.5 }}>
+        <Box sx={{ px: 1, mt: 1 }}>
           <Typography variant="caption" color="textSecondary" fontWeight="bold">BRIGHTNESS</Typography>
           <Slider value={configState.brightness} min={50} max={200} onChange={(e, val) => setConfigState({...configState, brightness: val})} color="secondary" />
-        </Box>
-
-        <Box sx={{ mt: 1.5 }}>
+          
           <Typography variant="caption" color="textSecondary" fontWeight="bold">CONTRAST</Typography>
           <Slider value={configState.contrast} min={50} max={200} onChange={(e, val) => setConfigState({...configState, contrast: val})} color="secondary" />
-        </Box>
 
-        <Box sx={{ mt: 1.5 }}>
           <Typography variant="caption" color="textSecondary" fontWeight="bold">SATURATION</Typography>
           <Slider value={configState.saturation} min={0} max={300} onChange={(e, val) => setConfigState({...configState, saturation: val})} color="secondary" />
         </Box>
+      </Box>
+
+      {/* EDGE CONTROLS SECTION */}
+      <Typography variant="subtitle1" color="primary" sx={{ borderBottom: '2px solid #002b5c', pb: 1, mt: 1 }}>
+        Edge Controls
+      </Typography>
+      
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Button variant="contained" color="error" startIcon={<WarningIcon />} onClick={forceGreen} fullWidth sx={{ py: 1.5 }}>FORCE EMERGENCY GREEN</Button>
+        <Button variant="outlined" color="primary" startIcon={<RestartAltIcon />} onClick={restartVideo} fullWidth sx={{ py: 1 }}>RESTART CURRENT VIDEO</Button>
       </Box>
     </Paper>
   );
@@ -162,7 +284,7 @@ const Configurator = ({ isSimMode, toggleSimMode, configState, setConfigState })
 // ============================================================================
 // 2. MIDDLE COLUMN: Video & Table
 // ============================================================================
-const CameraView = ({ isSimMode, configState, activeNode, setActiveNode }) => {
+const CameraView = ({ isSimMode, activeNode, configState }) => {
   const videoFilters = `
     brightness(${configState.brightness}%) 
     contrast(${configState.contrast}%) 
@@ -171,29 +293,7 @@ const CameraView = ({ isSimMode, configState, activeNode, setActiveNode }) => {
   `;
 
   return (
-    <Paper sx={{ flexShrink: 0, height: 420, backgroundColor: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', borderRadius: 2, border: 'none' }}>
-      
-      {/* 🟢 NEW CAMERA SWITCHER BUTTONS */}
-      <Box sx={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 1 }}>
-        {['NODE_A', 'NODE_B', 'NODE_C'].map((node) => (
-          <Button 
-            key={node}
-            size="small"
-            onClick={() => setActiveNode(node)}
-            sx={{ 
-              bgcolor: activeNode === node ? '#00e676' : 'rgba(0,0,0,0.6)', 
-              color: activeNode === node ? '#000000' : '#ffffff', 
-              fontWeight: 900,
-              fontSize: '0.7rem',
-              letterSpacing: 1,
-              '&:hover': { bgcolor: activeNode === node ? '#00c853' : 'rgba(0,0,0,0.8)' }
-            }}
-          >
-            {activeNode === node ? 'LIVE: ' : ''} {node}
-          </Button>
-        ))}
-      </Box>
-      
+    <Paper sx={{ width: '100%', height: { xs: 300, md: 420 }, backgroundColor: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', borderRadius: 2, border: 'none' }}>
       {isSimMode ? (
         <img 
           src={`http://localhost:8000/api/video_feed/${activeNode}`} 
@@ -203,7 +303,7 @@ const CameraView = ({ isSimMode, configState, activeNode, setActiveNode }) => {
       ) : (
         <Box sx={{ textAlign: 'center', color: '#64748b' }}>
           <VideocamOffIcon sx={{ fontSize: 64, color: '#d13239', mb: 2, opacity: 0.8 }} />
-          <Typography variant="button" display="block" sx={{ letterSpacing: 2 }}>Hardware Offline</Typography>
+          <Typography variant="button" display="block" sx={{ letterSpacing: 2 }}>Awaiting Simulation Upload</Typography>
         </Box>
       )}
     </Paper>
@@ -226,11 +326,11 @@ const ScanLogsTable = ({ refreshRate }) => {
   }, [refreshRate]);
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ width: '100%', minHeight: '300px', display: 'flex', flexDirection: 'column' }}>
       <Typography variant="subtitle1" color="primary" sx={{ p: 2, borderBottom: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
         ALPR Scan Logs
       </Typography>
-      <TableContainer sx={{ flex: 1, overflowY: 'auto' }}>
+      <TableContainer sx={{ flexGrow: 1 }}>
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
@@ -328,7 +428,7 @@ const RightColumnPanel = ({ refreshRate }) => {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 3 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Paper sx={{ p: 4, textAlign: 'center', bgcolor: '#ffffff', borderTop: '4px solid #00a0d1' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 2 }}>
           <AssessmentIcon color="secondary" />
@@ -338,7 +438,7 @@ const RightColumnPanel = ({ refreshRate }) => {
         <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700, letterSpacing: 1.5 }}>TOTAL VIOLATIONS</Typography>
       </Paper>
 
-      <Paper sx={{ p: 3, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Paper sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #002b5c', pb: 1.5, mb: 2 }}>
             <Typography variant="subtitle1" color="primary">Environment</Typography>
@@ -373,6 +473,7 @@ const RightColumnPanel = ({ refreshRate }) => {
     </Box>
   );
 };
+
 // ============================================================================
 // 🧱 MOCKED TABS FOR JURY PRESENTATION (UI ONLY)
 // ============================================================================
@@ -426,7 +527,7 @@ const ReportsTab = () => (
     <Typography variant="h6" color="primary" sx={{ mb: 2, borderBottom: '2px solid #002b5c', pb: 1 }}>
       Generated Compliance Audits
     </Typography>
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 3 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 3 }}>
       {[1, 2, 3, 4, 5].map((item) => (
         <Paper key={item} sx={{ p: 2, border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 2, bgcolor: '#f8fafc', cursor: 'pointer', '&:hover': { borderColor: '#00a0d1' } }}>
           <Box sx={{ bgcolor: '#fee2e2', color: '#dc2626', p: 1.5, borderRadius: 1, fontWeight: 'bold' }}>PDF</Box>
@@ -457,6 +558,7 @@ const SettingsTab = () => (
     </Box>
   </Paper>
 );
+
 // ============================================================================
 // MASTER LAYOUT
 // ============================================================================
@@ -466,21 +568,23 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState(0);
   
   const [config, setConfig] = useState({ 
-    refreshRate: 500, 
+    refreshRate: 500,
     brightness: 100, 
     contrast: 100, 
     saturation: 100, 
-    nightMode: false 
+    nightMode: false
   });
-  const [activeNode, setActiveNode] = useState('NODE_A');
+  
+  const activeNode = 'NODE_A';
+
   if (!isAuthenticated) {
     return (
       <ThemeProvider theme={capgeminiTheme}>
         <CssBaseline />
         <GlobalStyles styles={{ 
           '*, *::before, *::after': { boxSizing: 'border-box' },
-          '#root': { width: '100vw', height: '100vh', margin: 0, padding: 0, maxWidth: 'none', overflow: 'hidden' }, 
-          body: { margin: 0, padding: 0, overflow: 'hidden' } 
+          '#root': { width: '100vw', height: '100vh', margin: 0, padding: 0 }, 
+          body: { margin: 0, padding: 0 } 
         }} />
         <LoginScreen onLogin={() => setIsAuthenticated(true)} />
       </ThemeProvider>
@@ -491,94 +595,101 @@ export default function App() {
     <ThemeProvider theme={capgeminiTheme}>
       <CssBaseline />
       
-      {/* 🚀 CSS NUKE: FORCES STRICT FULL-WIDTH BORDER-BOX SIZING 🚀 */}
+      {/* 🚀 RESPONSIVE CSS NUKE: Removes strict viewport locking for native zooming */}
       <GlobalStyles styles={{ 
         '*, *::before, *::after': { boxSizing: 'border-box' },
-        '#root': { width: '100vw', height: '100vh', margin: 0, padding: 0, maxWidth: 'none', overflow: 'hidden' }, 
-        body: { margin: 0, padding: 0, overflow: 'hidden', width: '100vw', height: '100vh' },
-        '*::-webkit-scrollbar': { width: '6px' },
+        '#root': { minHeight: '100vh', display: 'flex', flexDirection: 'column' }, 
+        body: { margin: 0, padding: 0, minHeight: '100vh', backgroundColor: '#eef2f6', overflowX: 'hidden' },
+        '*::-webkit-scrollbar': { width: '8px' },
         '*::-webkit-scrollbar-track': { background: '#f1f5f9' },
         '*::-webkit-scrollbar-thumb': { background: '#cbd5e1', borderRadius: '4px' },
         '*::-webkit-scrollbar-thumb:hover': { background: '#94a3b8' }
       }} />
 
-      <Box sx={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        
-        {/* TOP NAVBAR */}
-        <AppBar position="static" elevation={0} sx={{ bgcolor: '#002b5c', width: '100%', flexShrink: 0 }}>
-          <Toolbar variant="dense" sx={{ minHeight: '64px', px: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-              <img src="/capgemini-logo.png" alt="Capgemini Engineering" style={{ height: '46px', objectFit: 'contain' }} />
-              <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1.25rem', ml: 3, pl: 3, borderLeft: '1px solid #33557a' }}>
-                SMART CITY ADAS
-              </Typography>
-            </Box>
-            
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <Typography variant="body2" sx={{ color: '#a0b2c6', fontWeight: 600, mr: 2 }}>
-                v1.3.44 <span style={{ margin: '0 10px' }}>|</span> SYS_ADMIN
-              </Typography>
-              <IconButton color="inherit" onClick={() => setIsAuthenticated(false)} title="Logout" sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}>
-                <LogoutIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          </Toolbar>
-        </AppBar>
-
-        {/* REFINED TAB ROW */}
-        <Box sx={{ bgcolor: '#001c3d', px: 4, flexShrink: 0, borderBottom: '1px solid #e2e8f0', width: '100%' }}>
-          <Tabs value={currentTab} onChange={(e, val) => setCurrentTab(val)} textColor="inherit" indicatorColor="secondary">
-            <Tab label="DASHBOARD" />
-            <Tab label="EDGE NODES" />
-            <Tab label="REPORTS" />
-            <Tab label="SETTINGS" />
-          </Tabs>
-        </Box>
-
-{/* 🎯 THE FIX: PURE CSS GRID INSTEAD OF MUI <Grid> 🎯 */}
-<Box sx={{ flex: 1, p: 3, overflow: 'hidden', width: '100%' }}>
+      {/* TOP NAVBAR (Logo Only on the Left now) */}
+      <AppBar position="static" elevation={0} sx={{ bgcolor: '#002b5c', width: '100%' }}>
+        <Toolbar sx={{ minHeight: '80px', px: 3, display: 'flex', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <img src="/capgemini-logo.png" alt="Capgemini Engineering" style={{ height: '65px', objectFit: 'contain' }} />
+          </Box>
           
-          {/* TAB 0: THE REAL DASHBOARD */}
-          {currentTab === 0 && (
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: '3fr 6fr 3fr', // Forces 25% | 50% | 25% distribution mathematically
-              gap: '24px', 
-              height: '100%', 
-              width: '100%' 
-            }}>
-              
-              {/* LEFT COLUMN */}
-              <Box sx={{ height: '100%', minWidth: 0 }}>
-                {/* 👇 Pass activeNode so Emergency buttons apply to the correct intersection */}
-                <Configurator isSimMode={isSimulationMode} toggleSimMode={() => setIsSimulationMode(!isSimulationMode)} configState={config} setConfigState={setConfig} activeNode={activeNode} />
-              </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: '#a0b2c6', fontWeight: 600, mr: 2, display: { xs: 'none', sm: 'block' } }}>
+              v1.3.44 <span style={{ margin: '0 10px' }}>|</span> SYS_ADMIN
+            </Typography>
+            <IconButton color="inherit" onClick={() => setIsAuthenticated(false)} title="Logout" sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}>
+              <LogoutIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        </Toolbar>
+      </AppBar>
 
-              {/* MIDDLE COLUMN */}
-              <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
-                {/* 👇 Pass activeNode and setActiveNode to the camera */}
-                <CameraView isSimMode={isSimulationMode} configState={config} activeNode={activeNode} setActiveNode={setActiveNode} />
-                <ScanLogsTable refreshRate={config.refreshRate} />
-              </Box>
+      {/* REFINED TAB ROW (TITLE + TABS) */}
+      <Box sx={{ bgcolor: '#001c3d', px: { xs: 2, md: 4 }, borderBottom: '1px solid #e2e8f0', width: '100%', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+        <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1.25rem', mr: 4, fontWeight: 900, letterSpacing: '1px', display: { xs: 'none', md: 'block' } }}>
+          SMART CITY ADAS
+        </Typography>
+        <Tabs 
+          value={currentTab} 
+          onChange={(e, val) => setCurrentTab(val)} 
+          textColor="inherit" 
+          indicatorColor="secondary"
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ minHeight: '56px', '& .MuiTab-root': { minHeight: '56px' } }}
+        >
+          <Tab label="DASHBOARD" />
+          <Tab label="EDGE NODES" />
+          <Tab label="REPORTS" />
+          <Tab label="SETTINGS" />
+        </Tabs>
+      </Box>
 
-              {/* RIGHT COLUMN */}
-              <Box sx={{ height: '100%', minWidth: 0 }}>
-                <RightColumnPanel refreshRate={config.refreshRate} />
-              </Box>
-
+      {/* MAIN CONTENT AREA */}
+      <Box sx={{ flexGrow: 1, p: 3, width: '100%' }}>
+        
+        {/* TAB 0: THE REAL DASHBOARD */}
+        {currentTab === 0 && (
+          <Box sx={{ 
+            display: 'grid', 
+            gridTemplateColumns: { xs: '1fr', lg: '3fr 6fr 3fr' }, // 🚀 RESPONSIVE: Stacks vertically if zoomed in!
+            gap: '24px', 
+            alignItems: 'start'
+          }}>
+            
+            {/* LEFT COLUMN */}
+            <Box>
+              <Configurator 
+                isSimMode={isSimulationMode}
+                setIsSimMode={setIsSimulationMode}
+                configState={config}
+                setConfigState={setConfig}
+                activeNode={activeNode}
+              />
             </Box>
-          )}
 
-          {/* TAB 1: MOCKED EDGE NODES */}
-          {currentTab === 1 && <EdgeNodesTab />}
+            {/* MIDDLE COLUMN */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <CameraView isSimMode={isSimulationMode} activeNode={activeNode} configState={config} />
+              <ScanLogsTable refreshRate={config.refreshRate} />
+            </Box>
 
-          {/* TAB 2: MOCKED REPORTS */}
-          {currentTab === 2 && <ReportsTab />}
+            {/* RIGHT COLUMN */}
+            <Box>
+              <RightColumnPanel refreshRate={config.refreshRate} />
+            </Box>
 
-          {/* TAB 3: MOCKED SETTINGS */}
-          {currentTab === 3 && <SettingsTab />}
+          </Box>
+        )}
 
-        </Box>
+        {/* TAB 1: MOCKED EDGE NODES */}
+        {currentTab === 1 && <EdgeNodesTab />}
+
+        {/* TAB 2: MOCKED REPORTS */}
+        {currentTab === 2 && <ReportsTab />}
+
+        {/* TAB 3: MOCKED SETTINGS */}
+        {currentTab === 3 && <SettingsTab />}
 
       </Box>
     </ThemeProvider>
