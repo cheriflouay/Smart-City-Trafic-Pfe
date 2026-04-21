@@ -25,10 +25,9 @@ import PersonIcon from '@mui/icons-material/Person';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
-import StopIcon from '@mui/icons-material/Stop'; // 👈 NEW ICON IMPORT
-import FileUploadIcon from '@mui/icons-material/FileUpload';
 import StopIcon from '@mui/icons-material/Stop';
-import SpeedIcon from '@mui/icons-material/Speed'; // 👈 ADD THIS IMPORT
+import SpeedIcon from '@mui/icons-material/Speed';
+
 // ============================================================================
 // 🎨 CAPGEMINI MUI DESIGN SYSTEM
 // ============================================================================
@@ -100,14 +99,14 @@ const LoginScreen = ({ onLogin }) => {
 };
 
 // ============================================================================
-// 1. LEFT COLUMN: Unified Configurator (Upload + Visuals + Emergency)
+// 1. LEFT COLUMN: Unified Configurator
 // ============================================================================
-// Replace this component inside frontend/src/App.jsx
 const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, activeNode }) => {
   const [file, setFile] = useState(null);
   const [modelChoice, setModelChoice] = useState('YOLOv8_Nano');
   const [uploadStatus, setUploadStatus] = useState('');
-  const [confidence, setConfidence] = useState(0.15); // 👈 NEW STATE
+  const [confidence, setConfidence] = useState(0.15); 
+  const [stopLine, setStopLine] = useState(1600); // 👈 NEW: Stop Line UI Tracker
   const fileInputRef = useRef();
 
   const handleFileChange = (e) => {
@@ -138,6 +137,12 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
       
       await axios.post('http://localhost:8000/api/run_simulation', simData);
       
+      // Resend the custom UI configurations immediately after boot
+      setTimeout(() => {
+        handleConfidenceSubmit(null, confidence);
+        handleStopLineSubmit(null, stopLine);
+      }, 2000);
+
       setUploadStatus('Simulation Running!');
       setIsSimMode(true); 
       setTimeout(() => setUploadStatus(''), 5000);
@@ -172,17 +177,17 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
     } catch (e) { alert("Connection Error."); }
   };
 
-  // 👇 NEW: Handles sending the confidence payload to the backend
   const handleConfidenceSubmit = async (event, newValue) => {
     try {
-      await axios.post('http://localhost:8000/api/command', {
-        action: "SET_CONFIDENCE",
-        node_id: activeNode,
-        value: newValue
-      });
-    } catch (e) {
-      console.error("Failed to update confidence");
-    }
+      await axios.post('http://localhost:8000/api/command', { action: "SET_CONFIDENCE", node_id: activeNode, value: newValue });
+    } catch (e) { console.error("Failed to update confidence"); }
+  };
+
+  // 👇 NEW: Send dynamic stop line updates to the backend
+  const handleStopLineSubmit = async (event, newValue) => {
+    try {
+      await axios.post('http://localhost:8000/api/command', { action: "SET_STOP_LINE", node_id: activeNode, value: newValue });
+    } catch (e) { console.error("Failed to update stop line"); }
   };
 
   return (
@@ -212,24 +217,12 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
           </FormControl>
         </Box>
 
-        {/* 👇 NEW: The Interactive Slider Box */}
         <Box sx={{ bgcolor: '#f8fafc', p: 1.5, borderRadius: 1.5, border: '1px solid #e2e8f0', mt: 0.5 }}>
           <Typography variant="caption" color="textSecondary" fontWeight="bold" sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>LIVE AI CONFIDENCE</span>
             <span style={{ color: '#00a0d1' }}>{(confidence * 100).toFixed(0)}%</span>
           </Typography>
-          <Slider
-            value={confidence}
-            min={0.05}
-            max={0.95}
-            step={0.05}
-            onChange={(e, val) => setConfidence(val)} // Updates UI instantly
-            onChangeCommitted={handleConfidenceSubmit} // Sends API request only on mouse release
-            color="secondary"
-          />
-          <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block', mt: 0.5 }}>
-            Lower: Dets background noise. Higher: Stricter rules.
-          </Typography>
+          <Slider value={confidence} min={0.05} max={0.95} step={0.05} onChange={(e, val) => setConfidence(val)} onChangeCommitted={handleConfidenceSubmit} color="secondary" />
         </Box>
 
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -244,7 +237,6 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
         {uploadStatus && <Typography variant="body2" sx={{ color: '#16a34a', fontWeight: 'bold', textAlign: 'center' }}>{uploadStatus}</Typography>}
       </Box>
 
-      {/* VISUAL CONFIGURATOR SECTION */}
       <Typography variant="subtitle1" color="primary" sx={{ borderBottom: '2px solid #002b5c', pb: 1, mt: 1 }}>
         Visual Configurator
       </Typography>
@@ -267,10 +259,16 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
 
           <Typography variant="caption" color="textSecondary" fontWeight="bold">SATURATION</Typography>
           <Slider value={configState.saturation} min={0} max={300} onChange={(e, val) => setConfigState({...configState, saturation: val})} color="secondary" />
+
+          {/* 👇 NEW: Dynamic Stop-Line Calibration */}
+          <Typography variant="caption" color="textSecondary" fontWeight="bold" sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+            <span>RED LIGHT STOP-LINE (Y-AXIS)</span>
+            <span style={{ color: '#00a0d1' }}>{stopLine}px</span>
+          </Typography>
+          <Slider value={stopLine} min={100} max={2000} step={10} onChange={(e, val) => setStopLine(val)} onChangeCommitted={handleStopLineSubmit} color="error" />
         </Box>
       </Box>
 
-      {/* EDGE CONTROLS SECTION */}
       <Typography variant="subtitle1" color="primary" sx={{ borderBottom: '2px solid #002b5c', pb: 1, mt: 1 }}>
         Edge Controls
       </Typography>
@@ -363,13 +361,13 @@ const ScanLogsTable = ({ refreshRate }) => {
 };
 
 // ============================================================================
-// 3. RIGHT COLUMN: Env Data, Export & Analytics (UPGRADED)
+// 3. RIGHT COLUMN: Env Data, Export & Analytics
 // ============================================================================
-const RightColumnPanel = ({ refreshRate, activeNode }) => { // 👈 ADDED activeNode PROP
+const RightColumnPanel = ({ refreshRate, activeNode }) => { 
   const [timeframe, setTimeframe] = useState('all');
   const [weatherData, setWeatherData] = useState("Fetching API...");
   const [totalViolations, setTotalViolations] = useState(0);
-  const [telemetry, setTelemetry] = useState({ fps: 0, inference_ms: 0, cpu: 0, ram: 0 }); // 👈 NEW STATE
+  const [telemetry, setTelemetry] = useState({ fps: 0, inference_ms: 0, cpu: 0, ram: 0 }); 
 
   useEffect(() => {
     axios.get("https://api.open-meteo.com/v1/forecast?latitude=36.4561&longitude=10.7376&current_weather=true")
@@ -383,7 +381,6 @@ const RightColumnPanel = ({ refreshRate, activeNode }) => { // 👈 ADDED active
         const resStats = await axios.get('http://localhost:8000/api/stats');
         setTotalViolations(resStats.data.total_violations);
         
-        // 👇 NEW: Fetch Live Telemetry
         const resTele = await axios.get(`http://localhost:8000/api/telemetry/${activeNode}`);
         setTelemetry(resTele.data);
       } catch (e) { }
@@ -445,7 +442,6 @@ const RightColumnPanel = ({ refreshRate, activeNode }) => { // 👈 ADDED active
         <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 700, letterSpacing: 1.5 }}>TOTAL VIOLATIONS</Typography>
       </Paper>
 
-      {/* 👇 NEW: LIVE TELEMETRY DASHBOARD */}
       <Paper sx={{ p: 3, display: 'flex', flexDirection: 'column' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #002b5c', pb: 1.5, mb: 2 }}>
           <Typography variant="subtitle1" color="primary">Live Telemetry</Typography>
@@ -629,7 +625,6 @@ export default function App() {
     <ThemeProvider theme={capgeminiTheme}>
       <CssBaseline />
       
-      {/* 🚀 RESPONSIVE CSS NUKE: Removes strict viewport locking for native zooming */}
       <GlobalStyles styles={{ 
         '*, *::before, *::after': { boxSizing: 'border-box' },
         '#root': { minHeight: '100vh', display: 'flex', flexDirection: 'column' }, 
@@ -640,7 +635,6 @@ export default function App() {
         '*::-webkit-scrollbar-thumb:hover': { background: '#94a3b8' }
       }} />
 
-      {/* TOP NAVBAR (Logo Only on the Left now) */}
       <AppBar position="static" elevation={0} sx={{ bgcolor: '#002b5c', width: '100%' }}>
         <Toolbar sx={{ minHeight: '80px', px: 3, display: 'flex', justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -658,7 +652,6 @@ export default function App() {
         </Toolbar>
       </AppBar>
 
-      {/* REFINED TAB ROW (TITLE + TABS) */}
       <Box sx={{ bgcolor: '#001c3d', px: { xs: 2, md: 4 }, borderBottom: '1px solid #e2e8f0', width: '100%', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
         <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1.25rem', mr: 4, fontWeight: 900, letterSpacing: '1px', display: { xs: 'none', md: 'block' } }}>
           SMART CITY ADAS
@@ -679,19 +672,14 @@ export default function App() {
         </Tabs>
       </Box>
 
-      {/* MAIN CONTENT AREA */}
       <Box sx={{ flexGrow: 1, p: 3, width: '100%' }}>
-        
-        {/* TAB 0: THE REAL DASHBOARD */}
         {currentTab === 0 && (
           <Box sx={{ 
             display: 'grid', 
-            gridTemplateColumns: { xs: '1fr', lg: '3fr 6fr 3fr' }, // 🚀 RESPONSIVE: Stacks vertically if zoomed in!
+            gridTemplateColumns: { xs: '1fr', lg: '3fr 6fr 3fr' }, 
             gap: '24px', 
             alignItems: 'start'
           }}>
-            
-            {/* LEFT COLUMN */}
             <Box>
               <Configurator 
                 isSimMode={isSimulationMode}
@@ -701,30 +689,18 @@ export default function App() {
                 activeNode={activeNode}
               />
             </Box>
-
-            {/* MIDDLE COLUMN */}
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               <CameraView isSimMode={isSimulationMode} activeNode={activeNode} configState={config} />
               <ScanLogsTable refreshRate={config.refreshRate} />
             </Box>
-
-            {/* RIGHT COLUMN */}
             <Box>
               <RightColumnPanel refreshRate={config.refreshRate} activeNode={activeNode} />
             </Box>
-
           </Box>
         )}
-
-        {/* TAB 1: MOCKED EDGE NODES */}
         {currentTab === 1 && <EdgeNodesTab />}
-
-        {/* TAB 2: MOCKED REPORTS */}
         {currentTab === 2 && <ReportsTab />}
-
-        {/* TAB 3: MOCKED SETTINGS */}
         {currentTab === 3 && <SettingsTab />}
-
       </Box>
     </ThemeProvider>
   );

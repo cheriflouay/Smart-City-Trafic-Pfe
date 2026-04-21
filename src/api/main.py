@@ -318,6 +318,13 @@ async def send_emergency_command(payload: dict = Body(...)):
         command = json.dumps({"action": "SET_CONFIDENCE", "value": val})
         mqtt_client.publish(f"smartcity/node/{node_id}/command", command)
         return {"status": "SUCCESS"}
+        
+    # 👇 NEW: Route the Stop-Line Calibration to the AI
+    elif action == "SET_STOP_LINE":
+        val = payload.get("value", 1600)
+        command = json.dumps({"action": "SET_STOP_LINE", "value": int(val)})
+        mqtt_client.publish(f"smartcity/node/{node_id}/command", command)
+        return {"status": "SUCCESS"}
     
     raise HTTPException(status_code=400, detail="Invalid command.")
 

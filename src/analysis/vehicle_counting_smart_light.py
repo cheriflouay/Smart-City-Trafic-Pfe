@@ -79,11 +79,14 @@ init_db()
 emergency_force_green = False
 emergency_end_time = 0
 restart_requested = False  
-ai_confidence = 0.15 # 👈 NEW: Default AI Confidence Tracker
+ai_confidence = 0.15 # Default AI Confidence Tracker
+
+# 👇 NEW: Initialize the dynamic stop line using the config file as a default starting point
+stop_line_y = config.get("speed_estimation", {}).get("line_2_y", 1600) 
 
 # The DevOps Suicide Switch & Emergency Listener
 def on_command_message(client, userdata, msg):
-    global emergency_force_green, emergency_end_time, restart_requested, ai_confidence
+    global emergency_force_green, emergency_end_time, restart_requested, ai_confidence, stop_line_y
     try:
         payload = json.loads(msg.payload.decode())
         action = payload.get("action")
@@ -98,9 +101,12 @@ def on_command_message(client, userdata, msg):
         elif action == "RESTART_VIDEO":
             logger.warning(f"🔄 Dashboard requested video restart for {NODE_ID}")
             restart_requested = True
-        elif action == "SET_CONFIDENCE": # 👈 NEW: Listen for UI Slider changes!
+        elif action == "SET_CONFIDENCE": 
             ai_confidence = float(payload.get("value", 0.15))
             logger.info(f"🎛️ AI Confidence dynamically updated to {ai_confidence}")
+        elif action == "SET_STOP_LINE": # 👈 NEW: Listen for UI Calibration!
+            stop_line_y = int(payload.get("value", stop_line_y))
+            logger.info(f"📏 Stop Line dynamically updated to Y: {stop_line_y}")
             
     except Exception as e:
         pass
@@ -169,7 +175,7 @@ def draw_traffic_light(frame, state):
 # MAIN FUNCTION
 # -------------------------------------------------
 def main():
-    global emergency_force_green, emergency_end_time, restart_requested, ai_confidence
+    global emergency_force_green, emergency_end_time, restart_requested, ai_confidence, stop_line_y
     
     fine_calculator = FineCalculator()
     emergency_override = EmergencyOverride()
@@ -212,7 +218,7 @@ def main():
         
     # Cache for bounding boxes during skipped frames
     cached_tracks = []
-    inf_time_ms = 0.0 # 👈 NEW: Initialize inference time tracker
+    inf_time_ms = 0.0 # Initialize inference time tracker
 
     logger.info(f"✅ Edge Node {NODE_ID} Started Successfully")
 
@@ -251,7 +257,7 @@ def main():
         display_fps = 1 / time_diff if time_diff > 0 else 0
         prev_sys_time = current_sys_time
 
-        # 👇 UPDATED: Send MQTT Health Heartbeat every 2.0 seconds
+        # Send MQTT Health Heartbeat every 2.0 seconds
         if current_sys_time - last_heartbeat_time > 2.0:
             payload = {
                 "node_id": NODE_ID,
@@ -259,8 +265,8 @@ def main():
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "cpu": psutil.cpu_percent(),
                 "ram": psutil.virtual_memory().percent,
-                "fps": round(display_fps, 1),           # 👈 Added FPS
-                "inference_ms": round(inf_time_ms, 1)   # 👈 Added Inference Time
+                "fps": round(display_fps, 1),           
+                "inference_ms": round(inf_time_ms, 1)   
             }
             mqtt_client.publish(f"smartcity/node/{NODE_ID}/heartbeat", json.dumps(payload))
             last_heartbeat_time = current_sys_time
@@ -270,10 +276,10 @@ def main():
         # ========================================================
         if frame_counter % 3 == 0:
             # ---------------- DETECTION & TRACKING ----------------
-            inf_start = time.time() # 👈 NEW: Start stopwatch
+            inf_start = time.time() 
             results = model.track(frame, persist=True, tracker=config["ai"]["tracker_type"], 
                                   verbose=False, conf=ai_confidence)
-            inf_time_ms = (time.time() - inf_start) * 1000 # 👈 NEW: Calculate Inference Time in ms!
+            inf_time_ms = (time.time() - inf_start) * 1000 
             
             tracks = []
             
@@ -349,9 +355,8 @@ def main():
                 if track_id in track_history:
                     prev_cy = track_history[track_id]
                     
-                    # We use line_2_y as the Stop Line for the intersection
-                    stop_line = config["speed_estimation"]["line_2_y"]
-                    if (prev_cy <= stop_line and cy > stop_line) or (prev_cy >= stop_line and cy < stop_line):
+                    # 👇 FIX: Use the Dynamic Stop Line!
+                    if (prev_cy <= stop_line_y and cy > stop_line_y) or (prev_cy >= stop_line_y and cy < stop_line_y):
                         if track_id not in counted_ids:
                             
                             is_red_light = (light_state == "RED")
@@ -461,8 +466,8 @@ def main():
 
         # ---------------- DISPLAY & RENDER (CLEAN FEED) ----------------
         
-        # Only draw the Stop Line (Red Light trigger line)
-        cv2.line(frame, (0, config["speed_estimation"]["line_2_y"]), (frame.shape[1], config["speed_estimation"]["line_2_y"]), (0, 0, 255), 3)
+        # 👇 FIX: Draw the Dynamic Stop Line!
+        cv2.line(frame, (0, stop_line_y), (frame.shape[1], stop_line_y), (0, 0, 255), 3)
         
         cv2.putText(frame, f"FPS: {int(display_fps)} | Conf: {ai_confidence:.2f}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
         cv2.putText(frame, f"Active Node: {NODE_ID}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 100, 100), 2)
