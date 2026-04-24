@@ -9,7 +9,8 @@ import * as XLSX from 'xlsx';
 import { 
   ThemeProvider, createTheme, CssBaseline, GlobalStyles, Box, AppBar, Toolbar, Typography, Tabs, Tab, 
   Paper, Switch, Slider, Button, Table, TableBody, TableCell, TableContainer, 
-  TableHead, TableRow, MenuItem, Select, FormControl, InputLabel, Divider, TextField, IconButton
+  TableHead, TableRow, MenuItem, Select, FormControl, InputLabel, Divider, TextField, IconButton,
+  Card, CardMedia, CardContent // 👈 NEW IMPORTS FOR OCR DESK
 } from '@mui/material';
 
 // --- MUI ICONS ---
@@ -106,7 +107,7 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
   const [modelChoice, setModelChoice] = useState('YOLOv8_Nano');
   const [uploadStatus, setUploadStatus] = useState('');
   const [confidence, setConfidence] = useState(0.15); 
-  const [stopLine, setStopLine] = useState(1600); // 👈 NEW: Stop Line UI Tracker
+  const [stopLine, setStopLine] = useState(1600); 
   const fileInputRef = useRef();
 
   const handleFileChange = (e) => {
@@ -137,7 +138,6 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
       
       await axios.post('http://localhost:8000/api/run_simulation', simData);
       
-      // Resend the custom UI configurations immediately after boot
       setTimeout(() => {
         handleConfidenceSubmit(null, confidence);
         handleStopLineSubmit(null, stopLine);
@@ -183,7 +183,6 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
     } catch (e) { console.error("Failed to update confidence"); }
   };
 
-  // 👇 NEW: Send dynamic stop line updates to the backend
   const handleStopLineSubmit = async (event, newValue) => {
     try {
       await axios.post('http://localhost:8000/api/command', { action: "SET_STOP_LINE", node_id: activeNode, value: newValue });
@@ -260,7 +259,6 @@ const Configurator = ({ isSimMode, setIsSimMode, configState, setConfigState, ac
           <Typography variant="caption" color="textSecondary" fontWeight="bold">SATURATION</Typography>
           <Slider value={configState.saturation} min={0} max={300} onChange={(e, val) => setConfigState({...configState, saturation: val})} color="secondary" />
 
-          {/* 👇 NEW: Dynamic Stop-Line Calibration */}
           <Typography variant="caption" color="textSecondary" fontWeight="bold" sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
             <span>RED LIGHT STOP-LINE (Y-AXIS)</span>
             <span style={{ color: '#00a0d1' }}>{stopLine}px</span>
@@ -505,9 +503,119 @@ const RightColumnPanel = ({ refreshRate, activeNode }) => {
 };
 
 // ============================================================================
+// 4. THE HUMAN-IN-THE-LOOP (HITL) OCR REVIEW DESK (NEW!)
+// ============================================================================
+const OcrReviewDesk = () => {
+  const [queue, setQueue] = useState([]);
+  const [editingPlate, setEditingPlate] = useState({});
+
+  const fetchQueue = async () => {
+    try {
+      const response = await axios.get('http://localhost:8000/api/ocr/queue');
+      setQueue(response.data);
+    } catch (e) { console.error("Error fetching OCR queue"); }
+  };
+
+  useEffect(() => {
+    fetchQueue();
+    const interval = setInterval(fetchQueue, 3000); 
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleAction = async (db_id, new_status, fallbackPlate) => {
+    const plateToSubmit = editingPlate[db_id] || fallbackPlate;
+    try {
+      await axios.post('http://localhost:8000/api/ocr/review', {
+        db_id: db_id,
+        plate_number: plateToSubmit,
+        new_status: new_status
+      });
+      setQueue(queue.filter(q => q.db_id !== db_id));
+      setEditingPlate(prev => { const next = {...prev}; delete next[db_id]; return next; });
+    } catch (e) { alert("Failed to update record."); }
+  };
+
+  const handlePlateChange = (db_id, value) => {
+    setEditingPlate(prev => ({ ...prev, [db_id]: value.toUpperCase() }));
+  };
+
+  const juniorItems = queue.filter(q => q.ocr_status === 'NEEDS_JUNIOR');
+  const seniorItems = queue.filter(q => q.ocr_status === 'ESCALATED_TO_SENIOR');
+
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 4 }}>
+      
+      <Paper sx={{ p: 3, bgcolor: '#f8fafc', borderTop: '4px solid #00a0d1' }}>
+        <Typography variant="h6" color="primary" sx={{ mb: 1 }}>🧑‍💻 Junior Agent Desk</Typography>
+        <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 3 }}>Correct low-confidence plates. Escalate if unreadable.</Typography>
+        
+        {juniorItems.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 5, color: '#94a3b8' }}>No pending tasks in Junior queue.</Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {juniorItems.map((item) => (
+              <Card key={item.db_id} sx={{ display: 'flex', flexDirection: 'row', boxShadow: 'none', border: '1px solid #e2e8f0' }}>
+                <CardMedia component="img" sx={{ width: 140, objectFit: 'cover' }} image={item.image_path} alt="License Plate" />
+                <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="caption" sx={{ color: '#94a3b8' }}>Violation ID: {item.vehicle_id} | {item.timestamp}</Typography>
+                  <TextField 
+                    size="small" 
+                    label="Corrected Plate" 
+                    variant="outlined" 
+                    value={editingPlate[item.db_id] !== undefined ? editingPlate[item.db_id] : item.plate_number} 
+                    onChange={(e) => handlePlateChange(item.db_id, e.target.value)}
+                    sx={{ bgcolor: 'white' }}
+                  />
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                    <Button variant="contained" color="success" size="small" fullWidth onClick={() => handleAction(item.db_id, 'VERIFIED', item.plate_number)} sx={{ bgcolor: '#16a34a' }}>VERIFY</Button>
+                    <Button variant="outlined" color="error" size="small" fullWidth onClick={() => handleAction(item.db_id, 'ESCALATED_TO_SENIOR', item.plate_number)}>ESCALATE</Button>
+                  </Box>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+        )}
+      </Paper>
+
+      <Paper sx={{ p: 3, bgcolor: '#fff1f2', borderTop: '4px solid #dc2626' }}>
+        <Typography variant="h6" color="error" sx={{ mb: 1 }}>🕵️‍♀️ Senior Agent Desk</Typography>
+        <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 3 }}>Final authority on escalated & highly corrupted plates.</Typography>
+        
+        {seniorItems.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 5, color: '#94a3b8' }}>No pending tasks in Senior queue.</Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {seniorItems.map((item) => (
+              <Card key={item.db_id} sx={{ display: 'flex', flexDirection: 'row', boxShadow: 'none', border: '1px solid #fca5a5' }}>
+                <CardMedia component="img" sx={{ width: 140, objectFit: 'cover' }} image={item.image_path} alt="License Plate" />
+                <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="caption" sx={{ color: '#94a3b8' }}>ESCALATED | Violation: {item.violation_type}</Typography>
+                  <TextField 
+                    size="small" 
+                    label="Final Plate Verification" 
+                    variant="outlined" 
+                    value={editingPlate[item.db_id] !== undefined ? editingPlate[item.db_id] : item.plate_number} 
+                    onChange={(e) => handlePlateChange(item.db_id, e.target.value)}
+                    sx={{ bgcolor: 'white' }}
+                  />
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                    <Button variant="contained" color="success" size="small" fullWidth onClick={() => handleAction(item.db_id, 'VERIFIED', item.plate_number)} sx={{ bgcolor: '#16a34a' }}>APPROVE FINE</Button>
+                    <Button variant="contained" color="error" size="small" fullWidth onClick={() => handleAction(item.db_id, 'DISMISSED', item.plate_number)}>DISMISS FINE</Button>
+                  </Box>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+        )}
+      </Paper>
+
+    </Box>
+  );
+};
+
+// ============================================================================
 // 🧱 MOCKED TABS FOR JURY PRESENTATION (UI ONLY)
 // ============================================================================
-
 const EdgeNodesTab = () => (
   <Paper sx={{ p: 3, height: '100%', border: '1px solid #e2e8f0' }}>
     <Typography variant="h6" color="primary" sx={{ mb: 2, borderBottom: '2px solid #002b5c', pb: 1 }}>
@@ -666,6 +774,7 @@ export default function App() {
           sx={{ minHeight: '56px', '& .MuiTab-root': { minHeight: '56px' } }}
         >
           <Tab label="DASHBOARD" />
+          <Tab label="OCR REVIEW DESK" />
           <Tab label="EDGE NODES" />
           <Tab label="REPORTS" />
           <Tab label="SETTINGS" />
@@ -698,9 +807,10 @@ export default function App() {
             </Box>
           </Box>
         )}
-        {currentTab === 1 && <EdgeNodesTab />}
-        {currentTab === 2 && <ReportsTab />}
-        {currentTab === 3 && <SettingsTab />}
+        {currentTab === 1 && <OcrReviewDesk />}
+        {currentTab === 2 && <EdgeNodesTab />}
+        {currentTab === 3 && <ReportsTab />}
+        {currentTab === 4 && <SettingsTab />}
       </Box>
     </ThemeProvider>
   );
